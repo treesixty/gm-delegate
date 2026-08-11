@@ -1,0 +1,6 @@
+# Runtime drafts and logs are per-session artifacts, not source. Keep the folders
+# (via their README.md / .gitkeep) but ignore what the agent writes into them.
+*/out/*
+!*/out/README.md
+_journal/*
+!_journal/README.md

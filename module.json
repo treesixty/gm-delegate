@@ -1,0 +1,14 @@
+{
+  "id": "gm-delegate",
+  "title": "GM Delegate",
+  "version": "0.1.0",
+  "compatibility": { "minimum": "14", "verified": "14" },
+  "relationships": {
+    "systems": [{ "id": "dnd5e", "compatibility": { "minimum": "5.3.0" } }]
+  },
+  "esmodules": ["scripts/main.js"],
+  "styles": ["styles/gm-delegate.css"],
+  "socket": false,
+  "manifest": "https://raw.githubusercontent.com/treesixty/gm-delegate/main/module.json",
+  "download": "https://github.com/treesixty/gm-delegate/releases/download/v0.1.0/gm-delegate.zip"
+}

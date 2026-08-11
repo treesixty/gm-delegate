@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gm-delegate.local/contracts/log-entry.schema.json",
+  "title": "gm-delegate instrumentation record",
+  "description": "NORMATIVE. Spec §6. One record per card, from the first commit. This is the labelled dataset that §9's kill criteria are computed from, so a missing field is a hole in your go/no-go decision. Validate on write; a rejected record is a bug to fix now, not a record to drop.",
+
+  "type": "object",
+  "required": ["ts", "intent_id", "subsystem", "trigger", "foundry_state", "model", "latency_ms", "gm_action"],
+  "additionalProperties": false,
+
+  "properties": {
+    "ts": { "type": "integer", "minimum": 0, "description": "Unix epoch milliseconds." },
+
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "The ULID from the envelope (§5.6). Joins this record to the wire trace."
+    },
+    "proposal_id": {
+      "type": "string",
+      "description": "Present whenever a card was rendered. Joins to proposal.schema.json."
+    },
+
+    "subsystem": {
+      "type": "string",
+      "enum": ["random_encounters", "loot", "npc_voice", "combat_tactics", "rules_lookup", "recap"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["off", "propose", "auto"],
+      "description": "The mode in force when this fired. Needed to interpret the accept rate: an accept under 'auto' is not the same signal as an accept under 'propose'."
+    },
+
+    "trigger": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["gm_command", "hook", "watcher"],
+          "description": "v1 only ever emits gm_command (§4.7) and hook (§4.6). 'watcher' is v2."
+        },
+        "text": { "type": "string" },
+        "event": { "type": "string" }
+      }
+    },
+
+    "foundry_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scene", "combat"],
+      "properties": {
+        "scene": { "type": ["string", "null"] },
+        "combat": { "type": "boolean" },
+        "selected": {
+          "type": ["string", "null"],
+          "description": "Actor id of the controlled token. §4.6 calls controlToken the highest-signal event in the system, so this column carries most of the predictive weight."
+        }
+      }
+    },
+
+    "entity_link": {
+      "type": ["string", "null"],
+      "description": "UUID of the linked catalog document, or null for chatter. v2 (§7.3); always null in v1."
+    },
+
+    "provenance": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "tableId": { "type": "string" },
+        "roll": { "type": "integer" },
+        "tableDice": { "type": "string" },
+        "result": { "type": "string" },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "quantityDice": { "type": "string" }
+      }
+    },
+
+    "model": { "type": "string", "description": "Exact served model string, e.g. 'qwen3.5-9b-q4km'. §10 picks the model from this column." },
+
+    "latency_ms": {
+      "type": "object",
+      "required": ["total"],
+      "additionalProperties": false,
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "description": "GM prompt to card on screen. §9 threshold is a median under 5000." },
+        "model": { "type": "integer", "minimum": 0 },
+        "tools": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "tool_calls": {
+      "type": "array",
+      "description": "Needed for §9's tool-call validity threshold (>95%). Without this array that kill criterion cannot be computed.",
+      "items": {
+        "type": "object",
+        "required": ["name", "valid"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "valid": { "type": "boolean", "description": "Legal call AND legal args." },
+          "error": { "type": "string" }
+        }
+      }
+    },
+
+    "card_text": { "type": ["string", "null"] },
+
+    "gm_action": {
+      "type": "string",
+      "enum": ["accept", "edit", "reroll", "skip", "expired"],
+      "description": "accept=positive. edit=positive plus a quality signal. reroll=weak negative. skip=weak negative. expired=negative (never opened). See §6's label table."
+    },
+    "gm_edit_diff": {
+      "type": ["string", "null"],
+      "description": "The distance between the model's register and yours. §5.4 calls this the best training signal in the system."
+    },
+
+    "rejected": {
+      "type": ["object", "null"],
+      "description": "Present when the Interceptor refused. §8 M2 is proved by finding these in the log.",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": { "type": "string" },
+        "action": { "type": "string" }
+      }
+    }
+  }
+}

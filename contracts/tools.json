@@ -1,0 +1,130 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "list_roll_tables",
+      "description": "List roll tables in the world. Filter by name substring.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "filter": { "type": "string", "description": "Optional name substring." }
+        }
+      }
+    }
+  },
+
+  {
+    "type": "function",
+    "function": {
+      "name": "roll_on_table",
+      "description": "Roll on a table. Foundry performs the roll. Returns the drawn result, the dice that produced it, and the resolved creature quantity. Does NOT display to chat.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tableId"],
+        "properties": {
+          "tableId": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  {
+    "type": "function",
+    "function": {
+      "name": "get_compendium_actor",
+      "description": "Fetch one statblock by explicit ID from a named pack. Single lookup only. There is deliberately no way to search all compendiums.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packId", "actorId"],
+        "properties": {
+          "packId": { "type": "string" },
+          "actorId": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_encounter",
+      "description": "Emit an encounter proposal card for the GM. Does not place anything. Write BEATS the GM can perform from, never prose.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["creatures", "beats", "hook", "provenance"],
+        "properties": {
+          "creatures": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "quantity", "packId", "actorId"],
+              "properties": {
+                "name": { "type": "string", "maxLength": 60 },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Comes from roll_on_table's resolved quantity. If you computed this yourself, that is a bug (§5.3)."
+                },
+                "descriptor": {
+                  "type": "string",
+                  "maxLength": 60,
+                  "description": "e.g. 'lean, winter-starved'. A phrase, not a sentence."
+                },
+                "packId": { "type": "string" },
+                "actorId": { "type": "string" }
+              }
+            }
+          },
+          "beats": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "description": "§5.3 says 3 to 5 fragments. This is enforced here so a prose-writing model fails validation instead of reaching the GM.",
+            "items": { "type": "string", "minLength": 3, "maxLength": 90 }
+          },
+          "hook": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120,
+            "description": "One line. Why is this here? What does it imply about the world?"
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tableId", "roll", "result"],
+            "properties": {
+              "tableId": { "type": "string" },
+              "roll": { "type": "integer" },
+              "tableDice": { "type": "string" },
+              "result": { "type": "string" },
+              "quantity": { "type": "integer", "minimum": 1 },
+              "quantityDice": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  {
+    "type": "function",
+    "function": {
+      "name": "place_encounter",
+      "description": "Place tokens on the active scene at the GM's cursor. Only callable after the GM accepts a proposal. Imports the world Actor first if needed.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposalId"],
+        "properties": {
+          "proposalId": { "type": "string" }
+        }
+      }
+    }
+  }
+]

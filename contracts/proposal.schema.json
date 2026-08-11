@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gm-delegate.local/contracts/proposal.schema.json",
+  "title": "gm-delegate proposal record",
+  "description": "NORMATIVE. Spec §5.7. A proposal MUST be a complete placement instruction. place_encounter(proposalId) takes no other arguments, so anything absent here cannot be recovered without re-rolling, and a re-roll would place creatures the GM never accepted. That is the single rule this file exists to enforce.",
+
+  "type": "object",
+  "required": ["id", "created_ts", "expires_ts", "opened", "subsystem", "creatures", "beats", "hook", "provenance"],
+  "additionalProperties": false,
+
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "intent_id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+
+    "created_ts": { "type": "integer", "minimum": 0 },
+    "expires_ts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "created_ts + TTL. On expiry, emit gm_action 'expired' to the log BEFORE discarding. A sweeper that silently deletes throws away the cheapest training signal in the system (§5.7)."
+    },
+    "opened": {
+      "type": "boolean",
+      "description": "Distinguishes 'skip' (opened, then refused) from 'expired' (never seen). Two different labels; do not collapse them."
+    },
+
+    "subsystem": { "type": "string", "enum": ["random_encounters", "loot", "npc_voice", "combat_tactics", "rules_lookup", "recap"] },
+    "scene_id": { "type": ["string", "null"], "description": "Scene active at proposal time. If the GM has since changed scenes, placement targets the CURRENT scene; log the mismatch." },
+
+    "creatures": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Complete placement instruction. packId + actorId let place_encounter import without re-fetching; quantity is what Foundry already rolled.",
+      "items": {
+        "type": "object",
+        "required": ["name", "quantity", "packId", "actorId"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "descriptor": { "type": "string" },
+          "packId": { "type": "string" },
+          "actorId": { "type": "string" },
+          "sourceUuid": {
+            "type": "string",
+            "description": "Compendium UUID. Stamped onto the imported world Actor as flags['gm-delegate'].sourceUuid and used to dedupe on the next encounter (§5.2)."
+          }
+        }
+      }
+    },
+
+    "beats": { "type": "array", "minItems": 3, "maxItems": 5, "items": { "type": "string" } },
+    "hook": { "type": "string" },
+
+    "provenance": {
+      "type": "object",
+      "required": ["tableId", "roll", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "tableId": { "type": "string" },
+        "roll": { "type": "integer" },
+        "tableDice": { "type": "string" },
+        "result": { "type": "string" },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "quantityDice": { "type": "string" }
+      }
+    },
+
+    "edited": {
+      "type": "boolean",
+      "description": "Set when the GM used Edit. The edited text is what gets placed and what gets logged as card_text; the original survives in gm_edit_diff."
+    },
+    "card_text_original": { "type": ["string", "null"] },
+    "card_text_final": { "type": ["string", "null"] }
+  }
+}
