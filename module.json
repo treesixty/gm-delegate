@@ -9,6 +9,6 @@
   "esmodules": ["scripts/main.js"],
   "styles": ["styles/gm-delegate.css"],
   "socket": false,
-  "manifest": "https://raw.githubusercontent.com/treesixty/gm-delegate/main/module.json",
+  "manifest": "https://raw.githubusercontent.com/treesixty/gm-delegate/master/module.json",
   "download": "https://github.com/treesixty/gm-delegate/releases/download/v0.1.0/gm-delegate.zip"
 }
