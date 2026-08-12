@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Current milestone | **M3 — Panel. DONE, live-verified** (2026-08-12, see next-session note for 2 unconfirmed items). M4 (EventBus) is next. |
+| Current milestone | **M3 — Panel. DONE, fully live-verified** (2026-08-12 — all items confirmed, including the 2 that were outstanding at end of previous session). M4 (EventBus) is next. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
 | Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **79/79 passing** as of `v0.2.5` (node v24.14.1, npm 11.11.0). |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist passed 2026-08-11. M3's live-Foundry pass ran 2026-08-12** — see decision log, found and fixed 5 real bugs vitest-only verification could not have caught. M2 still vitest-only (no live-Foundry pass needed — nothing in it touches the DOM). |
-| Dev Foundry host | RunPod pod `1xxjyfays1a666` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://1xxjyfays1a666-30000.proxy.runpod.net`. **Stopped 2026-08-12** at end of session (disk persists, GPU billing paused). Replaces `ewsciq5y9ni2dr` (EU-RO-1), which never recovered — see decision log. `module.json` v0.2.5 / GitHub release `v0.2.5` are installed and live-verified on this pod. |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist passed 2026-08-11. M3's live-Foundry pass ran 2026-08-12 across two sessions** — see decision log, found and fixed 6 real bugs vitest-only verification could not have caught, then confirmed all fixes live. M2 still vitest-only (no live-Foundry pass needed — nothing in it touches the DOM). |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **Stopped 2026-08-12** at end of session (disk persists, GPU billing paused). Replaces `1xxjyfays1a666` (also US-NC-1), which hit the same recurring GPU-availability `start-pod` failure and was terminated + recreated — see decision log. `module.json` v0.2.5 / GitHub release `v0.2.5` are installed and live-verified on this pod. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
@@ -19,7 +19,7 @@
 |---|---|---|
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
-| 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12; 5 bugs found and fixed (v0.2.1–v0.2.5). 2 items not yet re-confirmed after the last fix, see next-session note.** |
+| 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed.** |
 | 4 | EventBus | not started |
 | 5 | Agent server + ModelClient | not started |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
@@ -483,6 +483,49 @@ why — otherwise a future session will relitigate it again.)*
     once DOM/`ApplicationV2` code is involved, and `vitest`-only verification of a guarded class
     that vitest never constructs is verification of everything except the part most likely to
     break.
+
+- **2026-08-12 (continued)** — **Closed the two items the previous session left unconfirmed
+  (Enter-to-submit, `gm_command` journal write), plus the RECLAIM journal-marker item, all
+  live against a fresh pod.**
+  - **`1xxjyfays1a666` (the pod the previous session had stopped) never recovered** — 2 more
+    `start-pod` attempts failed identically ("not enough free GPUs on the host machine"). User
+    approved terminate + recreate. New pod `d90mhv7i5kvqyg`, also landed in **US-NC-1** this
+    time (matched, not a new region). Old pod deleted via `delete-pod`.
+  - **`create-pod` itself failed once** (`500 failed to create pod`) before succeeding on
+    immediate retry — a new failure mode not previously logged, distinct from the
+    `start-pod` GPU-availability error. One retry cleared it; not enough data yet to say if
+    it recurs.
+  - **New pattern found for re-provisioning without touching the browser's first-run
+    screen**: pass `FOUNDRY_RELEASE_URL` (the Timed URL) as a pod **env var** via
+    `update-pod`, then `restart-pod`, rather than pasting it into the web UI. felddy's
+    entrypoint reads it at container start and auto-downloads, skipping the manual paste
+    step. Confirmed working this session. Caveat: `update-pod`'s `env` param **replaces the
+    whole env set**, not merges — `FOUNDRY_ADMIN_KEY` had to be repeated in the same call or
+    it would have been dropped.
+  - **`FOUNDRY_ADMIN_KEY` value is user-chosen, not derived**: `Onward-Worst-Subpanel6-Perfectly-Parasitic`
+    (same convention as 2026-08-11 — a chosen value, not an account credential). Recorded here
+    because the pod was rebuilt from scratch and the value had to be re-supplied by the user;
+    the permission classifier blocked reading it back off the running pod's config
+    (reasonable — it would have surfaced a plaintext secret), so the user provided it directly
+    in chat instead of me reading it from RunPod.
+  - **All three live checks passed, via the F12 console against `game.modules.get("gm-delegate").api`:**
+    - Enter-to-submit (Bug 6, v0.2.5): pressing Enter in the trigger input fired
+      `sendTrigger`'s console.log — confirmed working.
+    - `gm_command` journal write (Bug 5, v0.2.4): `getJournal().slice(-1)` after an Enter
+      submit returned `{ts, reverted: false, revertedAt: null, type: 'gm_command', text: 'test5'}`.
+    - RECLAIM journal markers (Bug 4, v0.2.3 toggle): clicking RECLAIM produced
+      `{status: 'RECLAIMED'}`; clicking it again (release) produced
+      `{status: 'RECLAIM_RELEASED'}`. Both confirmed via `getJournal().slice(-1)`.
+  - **M3 is now fully live-verified with no outstanding items.** Pod stopped at end of
+    session (disk persists, GPU billing paused).
+  - **No browser-automation tool was available in this session** — all in-Foundry steps
+    (license/world setup, module install, clicking buttons, running console commands) were
+    driven by the user from console output the user pasted back, not by me directly. If a
+    future session has a browser tool, this whole loop gets faster; note it as a gap, not a
+    blocker — it worked, just manually.
+  - **Next session:** start M4 (EventBus). Recall the open question from §10 carried above:
+    confirm whether the table types in Foundry chat at all before M4, since it changes what
+    EventBus is worth.
 
 ## Known forward references in the spec
 
