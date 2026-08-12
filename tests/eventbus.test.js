@@ -12,17 +12,32 @@ beforeEach(() => {
 });
 
 describe("EventBus (§4.6) — Done when", () => {
-  it("controlToken, createChatMessage, and updateCombat reach the buffer", () => {
+  it("controlToken, createChatMessage, and a combat advance reach the buffer", () => {
     registerHooks();
 
     Hooks.callAll("controlToken", { actor: { id: "Actor.innkeeper" } }, true);
     Hooks.callAll("createChatMessage", { isRoll: false });
-    Hooks.callAll("updateCombat", { round: 2, turn: 1 }, {});
+    Hooks.callAll("combatTurn", {}, { round: 2, turn: 1 }, {});
 
     const events = getBuffer().map((f) => f.event);
     expect(events).toEqual(["token.selected", "chat.message", "combat.turn"]);
     expect(getBuffer()[0].data).toEqual({ actorId: "Actor.innkeeper" });
     expect(getBuffer()[2].data).toEqual({ round: 2, turn: 1 });
+  });
+
+  it("combatStart, combatRound, and combatTurn all read round/turn from updateData, not the document", () => {
+    registerHooks();
+
+    Hooks.callAll("combatStart", { round: 99, turn: 99 }, { round: 1, turn: 0 });
+    Hooks.callAll("combatRound", { round: 99, turn: 99 }, { round: 2, turn: 0 }, {});
+    Hooks.callAll("combatTurn", { round: 99, turn: 99 }, { round: 2, turn: 1 }, {});
+
+    const events = getBuffer();
+    expect(events.map((f) => f.data)).toEqual([
+      { round: 1, turn: 0 },
+      { round: 2, turn: 0 },
+      { round: 2, turn: 1 },
+    ]);
   });
 
   it("canvasReady and updateToken (position change only) also emit", () => {

@@ -66,10 +66,23 @@ export function extractRoll(msg) {
   return { rolls };
 }
 
+// combat.turn is sourced from combatStart/combatRound/combatTurn, not
+// updateCombat. Those three fire before the DB write (updateData carries the
+// real round/turn even though the document may still be stale) and are
+// mutually exclusive per advance — live-verified 2026-08-12 against a real
+// Combat: startCombat() fires only combatStart, a same-round nextTurn() fires
+// only combatTurn, a round-wrapping nextTurn() fires only combatRound. No
+// double-emit risk. updateCombat fires on *any* Combat write (adding a
+// combatant, rolling initiative, etc.), which is why an empty-tracker advance
+// previously emitted the noisy {round: 2, turn: null}. Spec §0/§4.6.
+const combatAdvance = (c, updateData) => emit("combat.turn", { round: updateData.round, turn: updateData.turn });
+
 const HOOKS = [
   ["controlToken", (token, ctrl) => ctrl && emit("token.selected", { actorId: token.actor?.id ?? null })],
   ["createChatMessage", (msg) => emit("chat.message", extractRoll(msg))],
-  ["updateCombat", (c) => emit("combat.turn", { round: c.round, turn: c.turn })],
+  ["combatStart", combatAdvance],
+  ["combatRound", combatAdvance],
+  ["combatTurn", combatAdvance],
   ["canvasReady", () => emit("scene.active", { sceneId: canvas.scene?.id ?? null })],
   ["updateToken", (t, chg) => ("x" in chg || "y" in chg) && emit("token.moved", { tokenId: t.id, x: chg.x, y: chg.y })],
 ];

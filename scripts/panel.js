@@ -103,14 +103,23 @@ export async function takeCombatant() {
   return next;
 }
 
-// "I'll voice this one" (§4.7, right-click an NPC token). Logic only — no
-// UI wires into it yet. See STATUS.md: the TokenHUD's DOM structure is not
-// in the fetched v14 docs, and a guessed `.control-icon` selector that
-// silently no-ops is worse than an honest gap.
+// "I'll voice this one" (§4.7, right-click an NPC token). Now wired to the
+// TokenHUD in main.js — the DOM structure was confirmed live 2026-08-12
+// (spec §0): <form id="token-hud">, buttons are .control-icon[data-action].
 export async function voiceNpc(actorId) {
   const next = await setActorOverride(actorId, "npc_voice", { decide: "off", prompt: "off" });
   activeInstance?.render();
   return next;
+}
+
+// NPC = not a player-character and not player-controlled, per the user's
+// own definition (2026-08-12) rather than a dnd5e-specific type check alone
+// — an unlinked "npc"-type token a player has been handed ownership of
+// (a mount, a hireling) should still count as theirs, not the GM's to voice.
+// Actor#hasPlayerOwner confirmed live against v14.365 (spec §0): true iff any
+// non-GM user holds OWNER permission on the actor.
+export function isNpcActor(actor) {
+  return !!actor && actor.type !== "character" && !actor.hasPlayerOwner;
 }
 
 // Stub — the socket is M5 (spec §5.6). Schema-valid: matches

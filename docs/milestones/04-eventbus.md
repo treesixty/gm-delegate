@@ -21,7 +21,7 @@ If all dialogue is voice but rolls still happen in Foundry, then `createChatMess
 carries rolls and targets — which is most of the trigger signal, and M4 is worth building.
 
 If nothing happens in Foundry chat, `createChatMessage` is near-worthless and this
-milestone shrinks to `controlToken` + `updateCombat`.
+milestone shrinks to `controlToken` + the combat hooks.
 
 **Answer this by looking at a real session's chat log before writing code.** Record the
 answer in `STATUS.md`. It changes what M4 is.
@@ -33,14 +33,21 @@ answer in `STATUS.md`. It changes what M4 is.
 `scripts/eventbus.js`
 
 ```js
+const combatAdvance = (c, updateData) => emit("combat.turn", { round: updateData.round, turn: updateData.turn });
 const HOOKS = [
   ["controlToken",      (token, ctrl) => ctrl && emit("token.selected", { actorId: token.actor?.id })],
   ["createChatMessage", (msg)         => emit("chat.message", extractRoll(msg))],
-  ["updateCombat",      (c, chg)      => emit("combat.turn", { round: c.round, turn: c.turn })],
+  ["combatStart",       combatAdvance],
+  ["combatRound",       combatAdvance],
+  ["combatTurn",        combatAdvance],
   ["canvasReady",       ()            => emit("scene.active", { sceneId: canvas.scene?.id })],
   ["updateToken",       (t, chg)      => "x" in chg || "y" in chg ? emit("token.moved", {...}) : null]
 ];
 ```
+
+`combat.turn` is sourced from `combatStart`/`combatRound`/`combatTurn` (spec §4.6, updated
+2026-08-12), not the originally-drafted `updateCombat` — see spec §0 for why (noisy, fires
+on any Combat write) and the live proof the three replacements never double-fire.
 
 ### `controlToken` is the single highest-signal event in the system
 
@@ -55,8 +62,8 @@ cut this one.
 
 ## Done when
 
-- [ ] `controlToken`, `createChatMessage`, and `updateCombat` reach the agent server and
-      are visible in its log.
+- [ ] `controlToken`, `createChatMessage`, and a combat advance (`combatStart`/
+      `combatRound`/`combatTurn`) reach the agent server and are visible in its log.
 - [ ] `extractRoll` pulls the actual dice result out of a `ChatMessage`, not the rendered
       HTML.
 - [ ] Events are emitted, not awaited. A slow or dead agent must not stall the GM's canvas.

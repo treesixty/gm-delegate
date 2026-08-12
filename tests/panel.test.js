@@ -17,6 +17,7 @@ import {
   performUndo,
   takeCombatant,
   voiceNpc,
+  isNpcActor,
   sendTrigger,
 } from "../scripts/panel.js";
 
@@ -147,5 +148,15 @@ describe("Panel context-menu writes (§4.7)", () => {
     expect(modeFor("npc_voice", "decide", "Actor.npc1")).toBe("off");
     expect(modeFor("npc_voice", "decide", "Actor.someoneElse")).toBe("off"); // both off by default anyway
     expect(getPolicy().actorOverrides["Actor.npc1"]).toEqual({ npc_voice: { decide: "off", prompt: "off" } });
+  });
+
+  // NPC = not a player-character and not player-controlled (2026-08-12
+  // decision) — a type check alone would wrongly let the GM "voice" a
+  // player-owned hireling just because its actor type happens to be "npc".
+  it("isNpcActor excludes player characters and player-owned actors, regardless of type", () => {
+    expect(isNpcActor({ type: "npc", hasPlayerOwner: false })).toBe(true);
+    expect(isNpcActor({ type: "character", hasPlayerOwner: false })).toBe(false);
+    expect(isNpcActor({ type: "npc", hasPlayerOwner: true })).toBe(false);
+    expect(isNpcActor(null)).toBe(false);
   });
 });

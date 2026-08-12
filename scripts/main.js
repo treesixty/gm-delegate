@@ -13,7 +13,7 @@ import {
 import { registerPolicySettings, getPolicy, modeFor } from "./policy.js";
 import { handleIntent, execute } from "./interceptor.js";
 import { EXECUTORS } from "./executors/index.js";
-import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant } from "./panel.js";
+import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant, voiceNpc, isNpcActor } from "./panel.js";
 import { registerHooks as registerEventBusHooks, getBuffer, registerEventSender, extractRoll } from "./eventbus.js";
 
 Hooks.once("init", () => {
@@ -74,6 +74,27 @@ Hooks.once("ready", () => {
   };
 
   registerEventBusHooks();
+
+  // "I'll voice this one" (§4.7, right-click an NPC token). Unlike the
+  // combat-tracker context menu, renderTokenHUD is a real, live-firing hook
+  // (confirmed 2026-08-12: canvas.hud.token.bind() dispatches it with a raw
+  // HTMLFormElement, not jQuery) — no prototype patch needed, a plain
+  // Hooks.on at ready time is enough since the HUD only renders on demand.
+  Hooks.on("renderTokenHUD", (hud, html) => {
+    const actor = hud.object?.actor;
+    if (!isNpcActor(actor)) return;
+    const rightCol = html.querySelector(".col.right");
+    if (!rightCol) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "control-icon";
+    button.dataset.action = "gmDelegateVoiceNpc";
+    button.setAttribute("aria-label", "I'll voice this one");
+    button.dataset.tooltip = "I'll voice this one";
+    button.innerHTML = '<i class="fas fa-comment-dots"></i>';
+    button.addEventListener("click", () => voiceNpc(actor.id));
+    rightCol.appendChild(button);
+  });
 
   if (shouldShowPanel()) {
     const panel = new GMDelegatePanel();
