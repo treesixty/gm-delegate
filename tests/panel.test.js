@@ -17,7 +17,13 @@ import {
   performUndo,
   takeCombatant,
   voiceNpc,
+  sendTrigger,
 } from "../scripts/panel.js";
+
+// sendTrigger's note() write is fire-and-forget (spec §4.4 NORMATIVE pattern,
+// same reason as interceptor.js's reject() — see tests/interceptor.test.js),
+// so journal assertions need a tick for that write to land.
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   resetFoundry();
@@ -117,6 +123,13 @@ describe("Panel (§4.7) — Done when", () => {
     expect(shouldShowPanel()).toBe(true);
     game.user.isGM = false;
     expect(shouldShowPanel()).toBe(false);
+  });
+
+  it("the trigger input writes a gm_command entry to the journal", async () => {
+    sendTrigger("three days through the Thornwood");
+    await flush();
+    const entry = getJournal().find((e) => e.type === "gm_command");
+    expect(entry).toMatchObject({ type: "gm_command", text: "three days through the Thornwood" });
   });
 });
 

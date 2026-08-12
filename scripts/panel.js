@@ -128,9 +128,15 @@ function sendPolicyRevoked() {
 // get proposed, not applied (AGENTS.md). Logs in the §6 `trigger` shape
 // instead (log-entry.schema.json: { type: "gm_command", text }), which is
 // schema-valid today and is what M5 will need to carry either way.
-function sendTrigger(text) {
+//
+// Fire-and-forget note() write, same pattern as interceptor.js's reject() —
+// the input must clear immediately, not wait on a journal write. Live-Foundry
+// testing (2026-08-12) found this was only ever console.log'd, never actually
+// written to the journal, despite STATUS.md recording it as done.
+export function sendTrigger(text) {
   const trigger = { type: "gm_command", text };
   console.log(`${MODULE_ID} | trigger (stub, no wire format yet) |`, trigger);
+  note(trigger);
   return trigger;
 }
 
