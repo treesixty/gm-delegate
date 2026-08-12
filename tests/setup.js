@@ -51,8 +51,24 @@ globalThis.canvas = {
 };
 
 globalThis.fromUuid = vi.fn(async () => null);
-globalThis.Hooks = { once: vi.fn(), on: vi.fn(), callAll: vi.fn() };
+
+// on()/callAll() actually dispatch (a plain vi.fn() spy can't exercise
+// eventbus.js's registerHooks(), which needs to call back into real
+// handlers). once() stays a spy — nothing under test relies on init/ready
+// firing.
+const hookHandlers = new Map();
+globalThis.Hooks = {
+  once: vi.fn(),
+  on: vi.fn((name, fn) => {
+    if (!hookHandlers.has(name)) hookHandlers.set(name, []);
+    hookHandlers.get(name).push(fn);
+  }),
+  callAll: vi.fn((name, ...args) => {
+    for (const fn of hookHandlers.get(name) ?? []) fn(...args);
+  }),
+};
 globalThis.ChatMessage = { deleteDocuments: vi.fn(async () => []) };
+globalThis.Roll = { fromJSON: vi.fn((json) => JSON.parse(json)) };
 
 globalThis.foundry = {
   utils: {
@@ -65,4 +81,5 @@ globalThis.foundry = {
 export function resetFoundry() {
   settings.clear();
   globalThis.canvas.tokens = layer();
+  hookHandlers.clear();
 }

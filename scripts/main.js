@@ -14,6 +14,7 @@ import { registerPolicySettings, getPolicy, modeFor } from "./policy.js";
 import { handleIntent, execute } from "./interceptor.js";
 import { EXECUTORS } from "./executors/index.js";
 import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant } from "./panel.js";
+import { registerHooks as registerEventBusHooks, getBuffer, registerEventSender, extractRoll } from "./eventbus.js";
 
 Hooks.once("init", () => {
   registerJournalSettings();
@@ -53,7 +54,10 @@ Hooks.once("ready", () => {
     execute,
     EXECUTORS,
     Panel,
+    EventBus: { getBuffer, registerEventSender, extractRoll },
   };
+
+  registerEventBusHooks();
 
   if (shouldShowPanel()) {
     const panel = new GMDelegatePanel();

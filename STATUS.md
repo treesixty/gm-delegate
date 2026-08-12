@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| Current milestone | **M3 — Panel. DONE, fully live-verified** (2026-08-12 — all items confirmed, including the 2 that were outstanding at end of previous session). M4 (EventBus) is next. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **79/79 passing** as of `v0.2.5` (node v24.14.1, npm 11.11.0). |
+| Current milestone | **M4 — EventBus. Built, vitest-complete, NOT yet live-verified** (2026-08-12). See decision log — M3's precedent says do not call this DONE until a live-Foundry pass runs, and one HIGH-volatility §0 gap (`ChatMessage#rolls` live shape) specifically needs it. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `scripts/eventbus.js` (new, M4), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
+| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **88/88 passing** as of this session (node v24.14.1, npm 11.11.0). |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist passed 2026-08-11. M3's live-Foundry pass ran 2026-08-12 across two sessions** — see decision log, found and fixed 6 real bugs vitest-only verification could not have caught, then confirmed all fixes live. M2 still vitest-only (no live-Foundry pass needed — nothing in it touches the DOM). |
 | Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **Stopped 2026-08-12** at end of session (disk persists, GPU billing paused). Replaces `1xxjyfays1a666` (also US-NC-1), which hit the same recurring GPU-availability `start-pod` failure and was terminated + recreated — see decision log. `module.json` v0.2.5 / GitHub release `v0.2.5` are installed and live-verified on this pod. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
@@ -20,7 +20,7 @@
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
 | 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed.** |
-| 4 | EventBus | not started |
+| 4 | EventBus | **Built and vitest-complete 2026-08-12 (`tests/eventbus.test.js`, 8 tests). Live-Foundry pass not yet run — see decision log.** |
 | 5 | Agent server + ModelClient | not started |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
 | 6 | EncounterAgent, 5 tools | not started |
@@ -532,6 +532,57 @@ why — otherwise a future session will relitigate it again.)*
   therefore carries real roll results, targets, and outcomes, which is most of the trigger
   signal M4's EventBus needs. Unblocks M4 — no fallback trigger source needs designing.
 
+- **2026-08-12 (continued)** — **M4 (EventBus) built: `scripts/eventbus.js`, wired into
+  `main.js`'s `ready` hook, `tests/eventbus.test.js` (8 tests, 88/88 total).** No live-Foundry
+  session run this time (pod was stopped, not restarted this session) — logic-complete only,
+  same status M3 was in after its first session, before the pod was found and the six real
+  bugs surfaced. **Do not read "vitest passes" as "done" here**, per that exact precedent.
+  - **Traps' build-order question, answered: local buffer, not M5-first.** `eventbus.js` emits
+    `{ event, data }` frames to a bounded in-module buffer (128, drop-oldest, matching
+    `contracts/envelope.schema.json`'s "event" def) and exposes `registerEventSender(fn)` —
+    an init-time callback slot, same shape as `journal.js`'s `notifyAgent()` — that M5's
+    socket.js will call once it exists, flushing anything buffered. Full envelope wrapping
+    (`v`/`id`/`ts`) is deliberately **not** built here: those are wire-level fields the schema
+    scopes to the sender at transport time, and generating real ULIDs would mean adding a
+    `ulid` dependency for a milestone with no socket to send them over yet. `main.js` exposes
+    `EventBus: { getBuffer, registerEventSender, extractRoll }` on the console API so the
+    buffer is inspectable before M5 exists, same role `test-m1.js` played for M1.
+  - **Verified against live v14 docs before writing (4 new §0 rows, not from training-data
+    recall):** the spec's `HOOKS` table names (`controlToken`, `createChatMessage`,
+    `updateCombat`, `updateToken`) are not literal TypeDoc entries — they're the documented
+    substitution pattern on `controlObject`/`createDocument`/`updateDocument` (each of those
+    pages states e.g. "substitute the Document name... for example 'updateActor'"), confirmed
+    by fetching each base hook's own page rather than trusting the pattern from memory.
+    `canvasReady` is a literal hook. `Token#actor`, `Combat#round`/`#turn`, `Roll#total`,
+    `Roll#formula`, and static `Roll.fromJSON(json)` are all confirmed accessors/methods.
+  - **One HIGH-volatility gap found and left explicit, not guessed past:**
+    `ChatMessage#rolls` is a confirmed schema field (`ArrayField<JSONField>`), but TypeDoc's
+    Accessors list for `ChatMessage` shows no getter override distinct from the schema — so
+    whether a live instance's `.rolls` holds parsed `Roll` objects or raw JSON strings is
+    **not confirmed from the docs**, same class of gap as M3's `ApplicationV2` PARTS wiring
+    and `getCombatTrackerEntryContext` rows. `extractRoll()` in `eventbus.js` handles both
+    shapes defensively (`Roll.fromJSON` on string entries) rather than assuming one. **First
+    real dice roll in a live session should confirm which shape actually arrives** — flagged
+    in spec §0 as HIGH, re-verify live before trusting either path exclusively.
+  - **`tests/setup.js` changed**: `Hooks.on`/`Hooks.callAll` went from bare `vi.fn()` spies to
+    an actual dispatch registry (`on` stores handlers by name, `callAll` invokes them), because
+    `eventbus.js`'s `registerHooks()` needed to be exercisable at all — a spy that swallows the
+    call can't prove the wrapped try/catch handler actually runs or actually buffers. Added
+    `Roll: { fromJSON }` to the mocked globals for the same reason. `resetFoundry()` now also
+    clears the handler registry. No existing test's behavior changed — nothing before this
+    session called `Hooks.on`/`callAll` inside a test.
+  - **Next session, first move:** get the RunPod dev pod running again (it was stopped at the
+    end of the previous session; expect the recurring GPU-availability `start-pod` failure and
+    budget for terminate+recreate per the pattern already logged twice above — **ask before
+    doing either**, both cost money/time), reinstall the module at the new version, then drive
+    the M4 Done-when checklist by hand: select a token and confirm `token.selected` lands in
+    `EventBus.getBuffer()`; make a real dice roll in chat and inspect the buffered
+    `chat.message` frame's `rolls` shape (this is what resolves the HIGH-volatility gap above);
+    advance combat and confirm `combat.turn`. Also confirm a deliberately-thrown handler
+    (e.g. temporarily break `extractRoll`) does not visibly break token selection or chat for
+    the GM — the vitest coverage proves the try/catch exists, not that it behaves the same way
+    inside a real browser's hook loop.
+
 ## Known forward references in the spec
 
 The spec's code snippets reference things built in later milestones. This is expected;
@@ -542,3 +593,4 @@ stub them, do not build them early. Tracked per-milestone in the briefings.
 | `interceptor.js` (§4.4) | `Panel.queue()` | M3 |
 | `interceptor.js` (§4.4) | `EXECUTORS` map | M7 (stub in M2) |
 | `journal.js` (§4.5) | forwarding `notifyAgent()` over the socket | M5 |
+| `eventbus.js` (§4.6) | a real sender behind `registerEventSender()` (currently unregistered; frames sit in the buffer) | M5 |
