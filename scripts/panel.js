@@ -16,7 +16,7 @@
 // output; those follow the AppV2 convention used since v12 and unchanged per
 // the existing bringToTop-only-removal row in §0. Flagged there as the basis.
 
-import { getPolicy, setSubsystemDecide, setSceneOverride, setActorOverride, nextMode } from "./policy.js";
+import { getPolicy, modeFor, setSubsystemDecide, setSceneOverride, setActorOverride, nextMode } from "./policy.js";
 import { note, undoLast } from "./journal.js";
 
 const MODULE_ID = "gm-delegate";
@@ -161,7 +161,12 @@ export const GMDelegatePanel = AppV2Api
         const policy = getPolicy();
         return {
           chips: CHIPS.map(({ key, label }) => {
-            const mode = policy.subsystems[key]?.decide ?? "off";
+            // Display the enforced mode (modeFor), not the raw stored
+            // decide value — sceneOverride: "all_off" (RECLAIM) forces
+            // every subsystem off at the interceptor without touching each
+            // subsystem's stored decide, and the chip must show that or the
+            // GM sees a stale "still delegated" state during a RECLAIM.
+            const mode = modeFor(key, "decide");
             return { key, label, mode, active: mode !== "off" };
           }),
           reclaimed: policy.sceneOverride === "all_off",

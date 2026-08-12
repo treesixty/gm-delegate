@@ -6,10 +6,13 @@
   left: 0;
   right: 0;
   z-index: 60;
-  background: rgba(20, 20, 20, 0.92);
   color: #eee;
   font-size: 13px;
-  border-bottom: 1px solid #555;
+  /* Bar's own background must not eat clicks meant for Foundry's own top
+     chrome (scene nav, sidebar tabs) underneath it — only the actual
+     controls below opt back in with pointer-events: auto. Verified live
+     2026-08-12: without this, the panel blocked scene creation. */
+  pointer-events: none;
 }
 
 #gm-delegate-panel .row {
@@ -18,6 +21,15 @@
   gap: 6px;
   padding: 4px 8px;
   border-bottom: 1px solid #333;
+  background: rgba(20, 20, 20, 0.92);
+  /* Row itself stays click-through (see #gm-delegate-panel); only the
+     actual controls below opt back in, so the gaps between them don't
+     block whatever Foundry chrome sits underneath. */
+}
+
+#gm-delegate-panel button,
+#gm-delegate-panel input {
+  pointer-events: auto;
 }
 
 #gm-delegate-panel .row:last-child {
