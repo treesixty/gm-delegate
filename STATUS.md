@@ -33,9 +33,7 @@ Briefings: `docs/milestones/`.
 
 - **Which model.** Decide from the M1 logs after four sessions, not from a leaderboard.
 - **Midi-QOL v14 stability.** Gates v2 only. Irrelevant to M1–M7.
-- **Does the table type in Foundry chat at all?** If dialogue is all voice but rolls
-  happen in Foundry, `createChatMessage` still carries rolls and targets — which is most
-  of the trigger signal. **Confirm this before M4.** It changes what EventBus is worth.
+- ~~**Does the table type in Foundry chat at all?**~~ **RESOLVED 2026-08-12** — see decision log.
 
 ## Decisions made during the build
 
@@ -526,6 +524,13 @@ why — otherwise a future session will relitigate it again.)*
   - **Next session:** start M4 (EventBus). Recall the open question from §10 carried above:
     confirm whether the table types in Foundry chat at all before M4, since it changes what
     EventBus is worth.
+
+- **2026-08-12 (continued)** — **Resolved the §10 STOP item on whether the table types in
+  Foundry chat at all.** Confirmed directly by the user (this is table-workflow knowledge,
+  not something verifiable from code/docs/API, so asked rather than assumed): **rolls happen
+  in Foundry** — dice buttons/`/r` are used even when dialogue is spoken aloud. `createChatMessage`
+  therefore carries real roll results, targets, and outcomes, which is most of the trigger
+  signal M4's EventBus needs. Unblocks M4 — no fallback trigger source needs designing.
 
 ## Known forward references in the spec
 
