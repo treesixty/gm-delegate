@@ -1,0 +1,32 @@
+{{! M3 frame + chips only. The card renderer is M7 — queued cards are dumped
+    as JSON here on purpose (docs/milestones/03-panel.md: "ugly is fine, ugly
+    is honest"). }}
+<div class="row chips">
+  {{#each chips}}
+    <button type="button" class="chip {{#if this.active}}active{{/if}}" data-action="cycleChip" data-subsystem="{{this.key}}">
+      {{this.label}} {{#if this.active}}&#9679;{{else}}&#9675;{{/if}}{{this.mode}}
+    </button>
+  {{/each}}
+  <button type="button" class="reclaim {{#if reclaimed}}active{{/if}}" data-action="reclaim">
+    RECLAIM{{#if reclaimed}} (active){{/if}}
+  </button>
+</div>
+
+<div class="row trigger">
+  <input type="text" name="triggerText" placeholder="three days through the Thornwood…" />
+  <button type="button" data-action="ask">ask</button>
+</div>
+
+<div class="row queue">
+  <div class="queued-cards">
+    {{#each queued}}
+      <pre class="card-stub">{{this}}</pre>
+    {{else}}
+      <span class="empty">no queued proposals</span>
+    {{/each}}
+  </div>
+  <div class="undo-controls">
+    <input type="number" name="undoN" value="1" min="1" />
+    <button type="button" data-action="undo">undo &#9257;</button>
+  </div>
+</div>

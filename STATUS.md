@@ -1,13 +1,13 @@
 # Status
 
-**Updated:** 2026-08-10
+**Updated:** 2026-08-11
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M2 — PolicyStore + Interceptor. DONE.** Done-when checklist (all 6 items) passed 2026-08-11 via `vitest`. M3 (Panel) is next. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (M2 stub — real panel is M3), `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
+| Current milestone | **M3 — Panel. DONE** (logic half — see next-session note). Done-when checklist built, 6 of 6 items covered by `vitest`. M4 (EventBus) is next. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
 | Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **70/70 passing** (node v24.14.1, npm 11.11.0). |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11** — see decision log entry below for per-item results. |
 | Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1; replaced `kcydos2bisfmhh` 2026-08-11 after a stuck host), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **stopped** (disk persists, billing paused). **Stop, never terminate, between sessions** — see note below. |
@@ -19,7 +19,7 @@
 |---|---|---|
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11** |
-| 3 | Panel | not started |
+| 3 | Panel | **DONE — logic verified via vitest 2026-08-11; live-Foundry render/visual pass still owed, see decision log** |
 | 4 | EventBus | not started |
 | 5 | Agent server + ModelClient | not started |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
@@ -311,6 +311,67 @@ why — otherwise a future session will relitigate it again.)*
     flush before asserting on `getJournal()`. Not a bug; do not "fix" by awaiting it.
   - **Next session:** start M3 (the Panel). `scripts/panel.js`'s stub gets replaced with a real
     `ApplicationV2`; `Panel.queue()`'s call sites in `interceptor.js` should not need to change.
+
+- **2026-08-11 (continued)** — **M3 (the Panel) built.** Its Done-when checklist is covered by
+  `tests/panel.test.js` (7 new tests, 77/77 total), same "outside Foundry: vitest against
+  mocked globals" split M2 used — no live Foundry session run this time. Split the file like
+  `journal.js`/`policy.js`: pure logic (`cycleSubsystemMode`, `reclaim`, `performUndo`,
+  `takeCombatant`, `voiceNpc`, the `Panel` object) is unit-tested directly; the real
+  `ApplicationV2` shell (`GMDelegatePanel`) is guarded behind `foundry.applications?.api` so
+  importing `panel.js` under vitest (which mocks only `foundry.utils`) doesn't throw — it
+  falls back to a throwing placeholder class that is never constructed outside a real client.
+  **Next session should still do a live-Foundry visual pass** (chips render, RECLAIM/undo
+  actually work through the DOM, panel is invisible to a non-GM login) — M2's "no live Foundry
+  needed" precedent covers the logic, not whether `ApplicationV2` actually mounts as coded.
+  - **Found and fixed a real drift between the spec and the M3 briefing**, same class of bug
+    as the 2026-08-10 §6/§7 renumbering fallout: `docs/milestones/03-panel.md`'s mockup and
+    Done-when list dropped the §4.7 trigger-input row (`> three days through the
+    Thornwood____ [ ask ]`) that the spec calls "not a convenience, it is the only trigger v1
+    has" and explicitly says to build at M3. Built it (text input + `ask` button + Enter-to-
+    submit in `panel.hbs`/`panel.js`), and updated the briefing's mockup and Done-when list to
+    match spec §4.7 rather than silently following the briefing's smaller scope. `AGENTS.md`
+    priority 4 governs decisions recorded *here*, not gaps in a briefing's own copy of the
+    spec, so this wasn't a STOP case — but it's exactly the kind of drift worth naming rather
+    than quietly building past.
+  - **The trigger input's wire format is an open contracts/ question, not resolved here.**
+    §4.7 says the input should "emit one INTENT over the socket," but
+    `contracts/envelope.schema.json` defines `INTENT` as **agent → module only** — there is no
+    module → agent slot for raw GM text. Taking §4.7 literally would mean either misusing the
+    `INTENT` type in the wrong direction or inventing a new envelope type, both of which are
+    schema changes, and `AGENTS.md`/§10 say propose those, don't apply them. Stubbed the send
+    instead: it logs `{ type: "gm_command", text }`, which matches `log-entry.schema.json`'s
+    `trigger` shape today and is schema-neutral until M5 decides. **M5 needs to resolve this
+    before the wire protocol is final** — flagging it explicitly rather than letting the M3
+    stub quietly become the de facto answer.
+  - **Assumption, not stated in the spec: each chip cycles only the `decide` stage**, leaving
+    `prompt` untouched. §4.3's policy has two independent stage switches per subsystem, but
+    §4.7's mockup shows one dot per chip. Reasoned from the mockup itself: `random_encounters`
+    boots with `decide: "propose", prompt: "auto"`, and the mockup shows "ENC ●propose" — the
+    `decide` value, not `prompt`'s. Chosen over "cycle both stages together" because that
+    would silently clobber the intentional `prompt: auto` default the first time a GM touches
+    the ENC chip. Revisit if a future milestone needs per-stage chip control.
+  - **"I'll take this one" writes the *global* `combat_tactics.decide`, not a scene-scoped
+    override**, because §4.3's `DEFAULT_POLICY` has no per-scene axis — only a single global
+    `sceneOverride` flag and per-actor `actorOverrides`. §4.7 says "for the scene"; building
+    that literally would mean adding a new `sceneOverrides: { [sceneId]: {...} }` shape to a
+    `NORMATIVE` block, which is the kind of structural change this session chose not to make
+    unilaterally for a Done-when-uncovered convenience feature. Add a scene-keyed policy
+    dimension first if this needs to be genuinely per-scene.
+  - **"I'll voice this one" has logic (`voiceNpc(actorId)`) but no UI wired to it.** The
+    natural trigger is a `TokenHUD` button (right-click a token opens the HUD), but
+    `foundryvtt.com/api/classes/foundry.applications.hud.TokenHUD.html` doesn't expose the
+    part's DOM structure (no `.control-icon` row, no confirmed `renderTokenHUD` payload shape
+    in what TypeDoc returned). Guessing a CSS selector that silently no-ops felt worse than
+    leaving the gap explicit — `AGENTS.md`'s testing section says say so rather than skip
+    silently. Needs a live-Foundry session to inspect the actual HUD template before wiring.
+  - **Two Foundry API facts used without a direct doc citation for the exact wording, both
+    logged in §0 at Medium/HIGH volatility:** the `ApplicationV2`/`HandlebarsApplicationMixin`
+    `DEFAULT_OPTIONS`/`PARTS`/actions wiring (TypeDoc confirms the namespace and the pieces
+    exist but not a worked example — relied on the established, unchanged-since-v12
+    convention), and the `getCombatTrackerEntryContext` hook name for the combat-tracker
+    context menu (TypeDoc confirms the protected method that must fire it, not the hook's
+    literal name). Both are called out as **re-verify live** in §0 rather than presented as
+    confirmed.
 
 ## Known forward references in the spec
 

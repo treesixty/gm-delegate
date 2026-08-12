@@ -55,3 +55,52 @@ export function modeFor(subsystem, stage, actorId = null) {
   const override = actorId && p.actorOverrides?.[actorId]?.[subsystem]?.[stage];
   return override ?? p.subsystems[subsystem]?.[stage] ?? "off";
 }
+
+/* -------------------------------------------- */
+/*  Writes — the Panel (M3) is the only caller   */
+/* -------------------------------------------- */
+
+export function nextMode(mode) {
+  const i = MODES.indexOf(mode);
+  return MODES[(i + 1) % MODES.length];
+}
+
+// The chip in §4.7's mockup shows one dot per subsystem, and that dot is the
+// `decide` stage's mode (confirmed against DEFAULT_POLICY: random_encounters
+// shows "propose", which is decide's value, not prompt's "auto"). So the chip
+// cycles `decide` only; `prompt` is left alone. Not stated explicitly in the
+// spec — recorded as an assumption in STATUS.md.
+export async function setSubsystemDecide(subsystem, mode) {
+  const p = getPolicy();
+  const next = {
+    ...p,
+    subsystems: { ...p.subsystems, [subsystem]: { ...p.subsystems[subsystem], decide: mode } },
+  };
+  await game.settings.set(MODULE_ID, POLICY_KEY, next);
+  return next;
+}
+
+// RECLAIM (§4.7). Sticky by construction: nothing ever sets this back to
+// null except an explicit future call with a different value.
+export async function setSceneOverride(value) {
+  const p = getPolicy();
+  const next = { ...p, sceneOverride: value };
+  await game.settings.set(MODULE_ID, POLICY_KEY, next);
+  return next;
+}
+
+// "I'll voice this one" (§4.7, right-click an NPC token).
+export async function setActorOverride(actorId, subsystem, patch) {
+  const p = getPolicy();
+  const existingActor = p.actorOverrides[actorId] ?? {};
+  const existingSub = existingActor[subsystem] ?? {};
+  const next = {
+    ...p,
+    actorOverrides: {
+      ...p.actorOverrides,
+      [actorId]: { ...existingActor, [subsystem]: { ...existingSub, ...patch } },
+    },
+  };
+  await game.settings.set(MODULE_ID, POLICY_KEY, next);
+  return next;
+}
