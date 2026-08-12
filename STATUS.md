@@ -1,16 +1,16 @@
 # Status
 
-**Updated:** 2026-08-12 (continued — session 4)
+**Updated:** 2026-08-12 (continued — session 5)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M4 — EventBus. Live-verified 2026-08-12, refined further this session.** `controlToken`, `createChatMessage`+`extractRoll` confirmed reaching `EventBus.getBuffer()` against a real pod. `combat.turn` now sourced from `combatStart`/`combatRound`/`combatTurn` instead of `updateCombat` (adopted this session, was an open recommendation, see decision log). The HIGH-volatility `ChatMessage#rolls` gap is resolved: live instances hold parsed `Roll` objects, not JSON strings. M4 is DONE with no open items. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer, collapse toggle, `voiceNpc()` now wired to the TokenHUD), `scripts/eventbus.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | `npm install && npm test` — **90/90 passing** as of this session (node v24.14.1, npm 11.11.0). |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4 live-verified. M2 still vitest-only (no DOM). |
-| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.4.0** / GitHub release `v0.4.0` installed and live-verified on this pod. |
+| Current milestone | **M5 — Agent server + ModelClient. Built and live-verified 2026-08-12.** Both halves stand: `scripts/socket.js` (module-side WS client, corrected role per §5.6) and `gm-delegate-agent/` (its own Node package: Orchestrator, ModelClient, WS server). Full protocol proven correct via three independent paths (unit tests, an in-process real-socket smoke test, live `handleIntent()` calls against a real Actor). **One open gap, not a code defect as far as this session could tell:** the WS opening handshake between the live browser and a locally-run agent process does not complete on this machine, despite proven TCP-level reachability — see the session-5 decision log entry for what to check next session. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). New: `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index}.js`, own `package.json`/`tests/`). |
+| Test harness | Module: `npm install && npm test` — **111/111 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **16/16 passing**. (node v24.14.1, npm 11.11.0.) |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5 live-verified (M5 partially — see gap above). M2 still vitest-only (no DOM). |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.5.0** / GitHub release `v0.5.0` installed and live-verified on this pod. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
@@ -21,7 +21,7 @@
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
 | 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed. Dead combat-tracker context menu fixed (v0.3.2–v0.3.3). Last remaining gap, `voiceNpc()`'s TokenHUD wiring, closed this session (v0.4.0), live-confirmed.** |
 | 4 | EventBus | **DONE — live-Foundry Done-when checklist passed 2026-08-12. `combat.turn` source swapped `updateCombat` → `combatStart`/`combatRound`/`combatTurn` this session (v0.4.0), live-confirmed no open items remain.** |
-| 5 | Agent server + ModelClient | not started |
+| 5 | Agent server + ModelClient | **Built and mostly live-verified 2026-08-12 (v0.5.0).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test. Live: module loads/connects-out logic confirmed sound, TCP reachability confirmed, `handleIntent()` round-trips (EXECUTED/REJECTED/undo) confirmed live against a real Actor. **Not yet confirmed: an actual completed WS handshake between the live browser and a locally-run agent on this machine** — see decision log for the suspected cause and what to check next session before assuming it's a code bug. |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
 | 6 | EncounterAgent, 5 tools | not started |
 | 7 | The card, with Edit | not started |
@@ -801,9 +801,55 @@ why — otherwise a future session will relitigate it again.)*
     with the structured reason, POLICY_REVOKED reaching the agent stops emission until the next
     HELLO, and killing the module connection leaves the agent process alive with
     `orchestrator.connected === false`. Smoke script deleted after use (not part of the repo).
-  - **Not yet done this session (continues below once the release ships):** the actual
-    live-Foundry pass — real browser, real `scripts/socket.js` dialing a real locally-run agent
-    process, driven via Playwright against pod `d90mhv7i5kvqyg`.
+  - **Live-Foundry pass, done, with one real unresolved gap.** Shipped as `v0.5.0` (release +
+    manifest asset both verified resolving before install), installed live via Playwright against
+    pod `d90mhv7i5kvqyg` (module confirmed `active: true`, `version: "0.5.0"`, `api` populated).
+    - **Confirmed live: killing/never-having an agent does not break Foundry.** With the agent
+      genuinely unreachable for most of the session, Foundry booted clean end to end — canvas
+      drew, every template compiled including `panel.hbs`, zero uncaught exceptions — while
+      `socket.js`'s reconnect loop kept failing quietly in the background. This is stronger
+      evidence for that Done-when item than "kill it after connecting" would have been: it proves
+      the module never depended on the agent being reachable at all, not just that it tolerates
+      losing an existing connection.
+    - **Confirmed live: TCP-level reachability from the browser to `127.0.0.1:8765` is real.**
+      When the local agent was down, the browser got an immediate `net::ERR_CONNECTION_REFUSED`
+      (only possible if the packet actually reached the port and found nothing listening) — this
+      ruled out an earlier hypothesis (network-namespace split between the Playwright browser and
+      this shell, e.g. WSL) that looked plausible from an earlier silent-timeout result.
+    - **Real gap found, not resolved this session: the WS opening handshake itself does not
+      complete**, even with the agent genuinely listening. Confirmed twice — once as an explicit
+      Chromium `WebSocket opening handshake timed out` error on the very first connection
+      attempt (agent was up), and once as a 30s timeout in a purpose-built one-shot verification
+      script (`gm-delegate-agent/verify-live.mjs`, deleted after use) that waited for
+      `orchestrator.connected` after a fresh page load. TCP-level reachability is proven (the
+      REFUSED case above), so this is specifically the HTTP Upgrade response not completing in
+      time — not a `scripts/socket.js` or `orchestrator.js` bug as far as this session could tell
+      (the in-process real-`ws` smoke test earlier in this session, Node client against Node
+      server, round-tripped instantly with no such issue). Suspected but **not confirmed**:
+      something in this specific machine's loopback path (a VPN/mesh network client — this
+      machine has a `100.x.x.x`-range interface, and the RunPod pod's own internal IP is
+      coincidentally in the same CGNAT range — is one candidate worth checking first next
+      session) intercepting or proxying `127.0.0.1` traffic in a way that stalls a WS handshake
+      specifically, while plain TCP connect/refuse still works. **Next session, if this recurs:
+      check what's bound to/intercepting loopback on the Windows host (VPN clients, Docker
+      Desktop's WSL2 integration, antivirus TLS/packet inspection) before assuming it's a code
+      bug** — the protocol logic itself is proven correct via three independent paths this
+      session (unit tests, the in-process real-socket smoke test, and live `handleIntent()`
+      calls below), so a fourth path (this specific machine's loopback) is the remaining unknown.
+    - **Substituted a still-genuinely-live check for the blocked wire round trip:** called
+      `game.modules.get("gm-delegate").api.handleIntent()` directly from the browser console
+      against a real world Actor (`Actor.nV7FYLKL5lqaaBVB`) — the exact same Interceptor/
+      journal/executor code path `socket.js`'s `onMessage()` calls, just not through the wire.
+      EXECUTED (rename applied, confirmed via `game.actors.get(id).name`), REJECTED
+      (`actor.hp.write`, `HARD_BAN`), and `undoLast(1)` (reverted the rename, confirmed via the
+      same live read) all behaved exactly as the vitest suite predicts. World left clean
+      afterward (actor name back to original, no stray journal/card-log side effects beyond the
+      test's own entries).
+    - **Not re-verified live this session (already covered by `tests/socket.test.js`, not
+      redundantly forced through the console): RECLAIM's `POLICY_REVOKED` no-op-when-disconnected
+      path.** Low priority given the equivalent behavior (`send()` no-ops when the socket isn't
+      `OPEN`) is directly unit-tested and the live handshake gap above would have blocked this
+      from reaching the wire anyway this session.
 
 ## Known forward references in the spec
 
