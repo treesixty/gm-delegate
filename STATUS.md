@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| Current milestone | **M1 — Instrumentation + journal. DONE.** Done-when checklist (all 5 items) passed 2026-08-11 in Foundry. M2 (PolicyStore + Interceptor) is next. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **51/51 passing** (node v24.14.1, npm 11.11.0). |
+| Current milestone | **M2 — PolicyStore + Interceptor. DONE.** Done-when checklist (all 6 items) passed 2026-08-11 via `vitest`. M3 (Panel) is next. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (M2 stub — real panel is M3), `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
+| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **70/70 passing** (node v24.14.1, npm 11.11.0). |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11** — see decision log entry below for per-item results. |
 | Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1; replaced `kcydos2bisfmhh` 2026-08-11 after a stuck host), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **stopped** (disk persists, billing paused). **Stop, never terminate, between sessions** — see note below. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
@@ -18,7 +18,7 @@
 | # | Milestone | State |
 |---|---|---|
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
-| 2 | PolicyStore + Interceptor | not started |
+| 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11** |
 | 3 | Panel | not started |
 | 4 | EventBus | not started |
 | 5 | Agent server + ModelClient | not started |
@@ -284,8 +284,33 @@ why — otherwise a future session will relitigate it again.)*
     Foundry instance even though the world/module state should have carried over from the
     stop/start cycle — had to re-enable it via Manage Modules before `game.modules.get(...).api`
     stopped being `undefined`. Not yet root-caused; note if it recurs.
-  - **Next session:** start M2 (PolicyStore + Interceptor). Dev pod `ewsciq5y9ni2dr` was left
-    running after this session at $0.74/hr — stop it if not immediately continuing.
+  - Dev pod `ewsciq5y9ni2dr` stopped after the M1 pass (disk persists, GPU billing paused).
+
+- **2026-08-11 (continued)** — **M2 (PolicyStore + Interceptor) built and its Done-when
+  checklist passed, all 6 items**, entirely via `vitest` against the mocked `game`/`canvas`
+  globals in `tests/setup.js` — **no live Foundry needed**, matching `AGENTS.md`'s "outside
+  Foundry: vitest against mocked globals" guidance. Dev pod stayed stopped the whole time.
+  - `scripts/policy.js`: `SUBSYSTEMS`/`STAGES`/`MODES`/`DEFAULT_POLICY`/`modeFor` per spec
+    §4.3, copied verbatim from the `NORMATIVE` block. `hardBans` travels on the policy object
+    for shape completeness but is **not** the enforcement source — see next line.
+  - `scripts/interceptor.js`: `handleIntent`/`execute` per spec §4.4, copied verbatim from the
+    `NORMATIVE` block (order: hard ban → policy → propose-queue → auto-execute, unconditional
+    and unreordered). `isBanned()` checks the literal `DEFAULT_POLICY.hardBans` array imported
+    directly, deliberately **not** `getPolicy().hardBans` (the mutable world-settings copy) —
+    §1.4 is explicit that hard bans are not a policy setting and no mode can lift them, so
+    enforcement never reads through the settings layer that could someday be written to.
+  - `scripts/panel.js`: throwaway stub (`Panel.queue()` pushes to an in-memory array + logs).
+    Real Panel is M3; do not mistake this stub for it.
+  - `tests/policy.test.js` and `tests/interceptor.test.js` added — `tests/hardbans.test.js` had
+    already left itself a note in 2026-08-10 saying policy.js's assertions belonged here once
+    it existed.
+  - One design note worth keeping: `reject()`'s call to `note()` is fire-and-forget (not
+    awaited), copied verbatim from the spec's `NORMATIVE` block — a rejection reply must not
+    wait on a journal write. This makes the journal write land a few microtask ticks after
+    `handleIntent()` resolves, which `tests/interceptor.test.js` accounts for with a `setTimeout`
+    flush before asserting on `getJournal()`. Not a bug; do not "fix" by awaiting it.
+  - **Next session:** start M3 (the Panel). `scripts/panel.js`'s stub gets replaced with a real
+    `ApplicationV2`; `Panel.queue()`'s call sites in `interceptor.js` should not need to change.
 
 ## Known forward references in the spec
 

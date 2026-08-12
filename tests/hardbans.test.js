@@ -9,8 +9,8 @@
 // `touches` property attached at registration time. EXECUTORS[name] is that
 // function, not a { run, touches } object. Assertions below match that.
 //
-// policy.js does not exist until M2, so its assertions live in
-// tests/policy.test.js and are skipped until then. This file passes today.
+// policy.js's own copy of the ban list is asserted in tests/policy.test.js
+// (M2), not here — this file only covers the executor allowlist.
 
 import { describe, it, expect } from "vitest";
 import { EXECUTORS } from "../scripts/executors/index.js";

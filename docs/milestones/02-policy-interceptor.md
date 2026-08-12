@@ -1,5 +1,6 @@
 # M2 — PolicyStore + Interceptor
 
+**State:** DONE — Done-when checklist passed 2026-08-11 via `vitest` (no live Foundry needed; see `STATUS.md`).
 **Read:** spec §4.3 (PolicyStore), §4.4 (the Interceptor), §1.2, §1.4 (hard bans)
 **Depends on:** M1 (`beginTransaction`, `commit`, `note`)
 
@@ -96,15 +97,15 @@ an executor for `actor.hp.write`. The ban list is belt; the empty map is braces.
 
 ## Done when
 
-- [ ] An intent for a subsystem set to `off` is **rejected with a structured error and
+- [x] An intent for a subsystem set to `off` is **rejected with a structured error and
       never reaches Foundry.** Prove it by trying — write the test, run it, watch it fail
       closed.
-- [ ] An intent whose action is on the hard-ban list is rejected **even when its subsystem
+- [x] An intent whose action is on the hard-ban list is rejected **even when its subsystem
       is set to `auto`.** Policy cannot lift a ban.
-- [ ] An intent with an action not in `EXECUTORS` is rejected `UNKNOWN_ACTION`.
-- [ ] `propose` mode queues and executes **nothing**.
-- [ ] A rejection is written to the journal with its reason.
-- [ ] An executor that throws leaves state unchanged (transaction rolls back).
+- [x] An intent with an action not in `EXECUTORS` is rejected `UNKNOWN_ACTION`.
+- [x] `propose` mode queues and executes **nothing**.
+- [x] A rejection is written to the journal with its reason.
+- [x] An executor that throws leaves state unchanged (transaction rolls back).
 
 ---
 
