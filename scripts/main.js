@@ -21,23 +21,32 @@ Hooks.once("init", () => {
   registerPolicySettings();
 });
 
-// "I'll take this one" (§4.7, right-click a combatant in the tracker). Hook
-// name confirmed only indirectly: TypeDoc shows CombatTracker's protected
-// `_getEntryContextOptions()` (foundryvtt.com/api, 2026-08-11) but not the
-// Hooks.callAll it makes internally. `getCombatTrackerEntryContext` is the
-// established name for that call across recent Foundry versions and nothing
-// in §0's v14 changelog rows says it moved — recorded as HIGH volatility
-// in spec §0. Re-verify live if this silently never fires.
-Hooks.on("getCombatTrackerEntryContext", (_html, options) => {
-  options.push({
-    name: "gm-delegate.takeThisOne",
-    icon: '<i class="fas fa-microphone"></i>',
-    condition: () => game.user.isGM,
-    callback: () => takeCombatant(),
-  });
-});
-
 Hooks.once("ready", () => {
+  // "I'll take this one" (§4.7, right-click a combatant in the tracker).
+  // Live-verified 2026-08-12 (RunPod pod, v14.365, dnd5e): v14's
+  // ApplicationV2 CombatTracker dropped the getCombatTrackerEntryContext
+  // hook entirely — core _getEntryContextOptions() returns a hardcoded
+  // array literal, no Hooks.call/callAll anywhere in it. The old
+  // Hooks.on(...) registration here was dead code and also used the wrong
+  // option shape (name/condition/callback instead of the real
+  // label/icon/visible/onClick). Only real extension point is patching the
+  // method itself. Patched via ui.combat's own prototype chain, not a
+  // guessed import path, since dnd5e's CombatTracker subclass calls
+  // super._getEntryContextOptions() and prototype patches are picked up
+  // live through that chain.
+  const CombatTrackerBase = Object.getPrototypeOf(Object.getPrototypeOf(ui.combat)).constructor;
+  const baseGetEntryContextOptions = CombatTrackerBase.prototype._getEntryContextOptions;
+  CombatTrackerBase.prototype._getEntryContextOptions = function () {
+    const options = baseGetEntryContextOptions.call(this);
+    options.push({
+      label: "I'll take this one",
+      icon: '<i class="fas fa-microphone"></i>',
+      visible: () => game.user.isGM,
+      onClick: () => takeCombatant(),
+    });
+    return options;
+  };
+
   // Console access for M1/M2/M3 testing; the socket (M5) becomes the real
   // caller of handleIntent.
   game.modules.get("gm-delegate").api = {
