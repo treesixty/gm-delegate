@@ -19,22 +19,27 @@ import { registerHooks as registerEventBusHooks, getBuffer, registerEventSender,
 Hooks.once("init", () => {
   registerJournalSettings();
   registerPolicySettings();
-});
 
-Hooks.once("ready", () => {
   // "I'll take this one" (§4.7, right-click a combatant in the tracker).
   // Live-verified 2026-08-12 (RunPod pod, v14.365, dnd5e): v14's
   // ApplicationV2 CombatTracker dropped the getCombatTrackerEntryContext
   // hook entirely — core _getEntryContextOptions() returns a hardcoded
   // array literal, no Hooks.call/callAll anywhere in it. The old
-  // Hooks.on(...) registration here was dead code and also used the wrong
+  // Hooks.on(...) registration was dead code and also used the wrong
   // option shape (name/condition/callback instead of the real
-  // label/icon/visible/onClick). Only real extension point is patching the
-  // method itself. Patched via ui.combat's own prototype chain, not a
-  // guessed import path, since dnd5e's CombatTracker subclass calls
-  // super._getEntryContextOptions() and prototype patches are picked up
-  // live through that chain.
-  const CombatTrackerBase = Object.getPrototypeOf(Object.getPrototypeOf(ui.combat)).constructor;
+  // label/icon/visible/onClick).
+  //
+  // Must patch here, in `init`, not `ready`: Foundry's ContextMenu binds to
+  // the combat tracker's DOM in _onFirstRender, which runs before any
+  // module's `ready` hook fires — a patch applied in `ready` (tried first,
+  // live-confirmed not to work) is too late, the menu has already captured
+  // the original unpatched method reference. Patching the global class
+  // directly (confirmed live: `foundry.applications.sidebar.tabs.CombatTracker.prototype
+  // === Object.getPrototypeOf(Object.getPrototypeOf(ui.combat))`) rather than
+  // deriving it from `ui.combat`, which doesn't exist yet at `init`. dnd5e's
+  // CombatTracker subclass calls super._getEntryContextOptions(), so the
+  // patch is picked up through that chain regardless of system.
+  const CombatTrackerBase = foundry.applications.sidebar.tabs.CombatTracker;
   const baseGetEntryContextOptions = CombatTrackerBase.prototype._getEntryContextOptions;
   CombatTrackerBase.prototype._getEntryContextOptions = function () {
     const options = baseGetEntryContextOptions.call(this);
@@ -46,7 +51,9 @@ Hooks.once("ready", () => {
     });
     return options;
   };
+});
 
+Hooks.once("ready", () => {
   // Console access for M1/M2/M3 testing; the socket (M5) becomes the real
   // caller of handleIntent.
   game.modules.get("gm-delegate").api = {
