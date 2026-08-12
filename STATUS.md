@@ -1,16 +1,16 @@
 # Status
 
-**Updated:** 2026-08-11
+**Updated:** 2026-08-12
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M3 — Panel. DONE** (logic half — see next-session note). Done-when checklist built, 6 of 6 items covered by `vitest`. M4 (EventBus) is next. |
+| Current milestone | **M3 — Panel. DONE, live-verified** (2026-08-12, see next-session note for 2 unconfirmed items). M4 (EventBus) is next. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **77/77 passing** as of M3 (node v24.14.1, npm 11.11.0). |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11.** M2 verified via vitest only (no live Foundry). **M3's ApplicationV2 shell is NOT yet live-verified** — see decision log, this pod would not start this session. |
-| Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **EXITED and stuck — 14 consecutive `start-pod` failures on 2026-08-11/12** ("not enough free GPUs on the host machine"), including 10 in a row via a 60s retry loop. **Next session: terminate + recreate is very likely required** (this is the second session this has happened; it did not self-clear last time either). `module.json` v0.2.0 / GitHub release `v0.2.0` are ready to install the moment a pod is up — no code changes needed first. |
+| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **79/79 passing** as of `v0.2.5` (node v24.14.1, npm 11.11.0). |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist passed 2026-08-11. M3's live-Foundry pass ran 2026-08-12** — see decision log, found and fixed 5 real bugs vitest-only verification could not have caught. M2 still vitest-only (no live-Foundry pass needed — nothing in it touches the DOM). |
+| Dev Foundry host | RunPod pod `1xxjyfays1a666` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://1xxjyfays1a666-30000.proxy.runpod.net`. **Stopped 2026-08-12** at end of session (disk persists, GPU billing paused). Replaces `ewsciq5y9ni2dr` (EU-RO-1), which never recovered — see decision log. `module.json` v0.2.5 / GitHub release `v0.2.5` are installed and live-verified on this pod. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
@@ -18,8 +18,8 @@
 | # | Milestone | State |
 |---|---|---|
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
-| 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11** |
-| 3 | Panel | **DONE — logic verified via vitest 2026-08-11; live-Foundry render/visual pass still owed, see decision log** |
+| 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
+| 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12; 5 bugs found and fixed (v0.2.1–v0.2.5). 2 items not yet re-confirmed after the last fix, see next-session note.** |
 | 4 | EventBus | not started |
 | 5 | Agent server + ModelClient | not started |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
@@ -402,6 +402,87 @@ why — otherwise a future session will relitigate it again.)*
     times" mitigation noted after the *first* incident is no longer a reasonable expectation —
     budget for terminate + recreate being the default outcome, not the fallback, whenever this
     pod has been stopped for more than a few hours.
+
+- **2026-08-12** — **M3's live-Foundry verification finally ran, and found 5 real bugs.**
+  Confirms the 2026-08-11 entry's caution ("treat M3 as logic-complete, not demo-complete") was
+  warranted — every one of these passed `vitest` cleanly because the guarded `ApplicationV2`
+  shell (never constructed under vitest, by design — see `panel.js`'s header comment) is exactly
+  where they lived.
+  - **`ewsciq5y9ni2dr` never recovered.** 20 more `start-pod` retries (60s interval, this session)
+    all failed identically ("not enough free GPUs on the host machine") — 34 consecutive failures
+    across two sessions now. User approved terminate + recreate. New pod `1xxjyfays1a666` landed
+    in **US-NC-1** (was EU-RO-1) — third different region across three pod creations, confirms
+    region placement is not sticky and not worth planning around. Fresh Timed URL, fresh license,
+    same `FOUNDRY_ADMIN_KEY` (chosen value, re-entered).
+  - **`git push`/`curl` to `github.com` fails with `schannel: ... SEC_E_LOGON_DENIED`, but only for
+    that host** — `google.com` over the same `curl` worked fine, and `gh`'s own Go HTTP client
+    reached `api.github.com` without issue. Not a system-wide TLS problem, not a credential
+    problem (`gh auth status` was already valid). **Fix: `git config http.sslBackend openssl`**
+    (per-repo; Git for Windows ships an OpenSSL-backed libcurl variant alongside the default
+    schannel one). Root cause not identified beyond "schannel and this specific GitHub endpoint
+    don't negotiate" — record the fix, not a diagnosis, if this recurs.
+  - **Bug 1 (`v0.2.1`) — panel never rendered at all.** `ApplicationV2` threw `Template part
+    "panel" must render a single HTML element` on every attempt. `panel.hbs` had three sibling
+    top-level `.row` divs; `ApplicationV2` PARTS require exactly one root element per template.
+    Fixed by wrapping all three in one `.gm-delegate-panel-inner` div. This is the fact the
+    2026-08-11 entry flagged as "re-verify live" (the `DEFAULT_OPTIONS`/`PARTS` wiring) — it was
+    not the part that broke; the single-root-element constraint was the undocumented-here piece.
+  - **Bug 2 (`v0.2.2`) — RECLAIM's chips stayed showing their pre-RECLAIM mode.** `modeFor()`
+    (`policy.js`) already enforced `sceneOverride: "all_off"` correctly — real enforcement was
+    never broken. But `panel.js`'s `_prepareContext` computed each chip's *displayed* mode from
+    the raw stored `subsystems[key].decide`, never calling `modeFor()`. Purely a UI-truthfulness
+    bug, but a direct contradiction of the spec's "you should never have to fight this thing."
+    Fixed: chip display now calls `modeFor()`.
+  - **Bug 3 (`v0.2.2`) — the panel's fixed full-width top bar blocked Foundry's own top chrome**,
+    reported as "unable to create scene, panel blocks the menu." The bar's `.row` background
+    spanned the full container width with implicit `pointer-events: auto`, capturing clicks
+    anywhere in its bounding box — not just over its own buttons. Fixed with a pointer-events
+    passthrough pattern: `#gm-delegate-panel` and `.row` are `pointer-events: none`, only
+    `button`/`input` opt back in with `pointer-events: auto`. **Purely visual overlap (the bar
+    still visually sits over some of Foundry's top chrome) remains, user explicitly deferred it
+    — not a Done-when item, no functional impact once clicks pass through.**
+  - **Bug 4 (`v0.2.3`) — RECLAIM had no way back at all.** Both the spec (§4.7 in the build spec)
+    and the M3 Done-when list say control "does not come back until you explicitly hand it back"
+    — wording that assumes a hand-back path exists. `reclaim()` only ever set
+    `sceneOverride = "all_off"`; nothing in the codebase ever set it back to `null`. Not a
+    corner case — this was a complete, permanent lockout reachable by any GM who ever clicked
+    RECLAIM once, with no UI recovery. Fixed: `reclaim()` is now a toggle — calling it again while
+    active clears `sceneOverride` (writes a `RECLAIM_RELEASED` journal marker) and restores each
+    chip's prior per-subsystem value. Button label changes to "RECLAIMED — click to release" so
+    the toggle is discoverable. New test added (`tests/panel.test.js`) — the toggle path had zero
+    coverage before this, in tests or in code.
+  - **Bug 5 (`v0.2.4`) — the trigger input's `gm_command` entry was never written to the journal**,
+    despite the M3 briefing's Traps section explicitly saying to "log the trigger in the §6
+    shape" and STATUS.md's 2026-08-11 entry recording it as done. `sendTrigger()` only ever
+    `console.log`'d. Fixed: now also calls `note()` (fire-and-forget, same pattern as
+    `interceptor.js`'s `reject()`). `sendTrigger` was also never exported for testing — exported
+    it and added the missing test.
+  - **Bug 6 (`v0.2.5`) — Enter-to-submit on the trigger input was never wired.** `[ ask ]`'s click
+    handler worked; Enter did nothing. Same class of gap as Bug 5 — STATUS.md's 2026-08-11 entry
+    claimed "Enter-to-submit in `panel.hbs`/`panel.js`" was built; it was not, only the button
+    existed. Fixed with a delegated `keydown` listener on the root element in `_onFirstRender`
+    (delegated, not attached to the `<input>` directly, because `HandlebarsApplicationMixin`'s
+    PARTS re-render replaces the input on every re-render — the root element is what persists).
+    Calls the same `_onAsk` handler the button uses. **Not yet re-confirmed live** — session
+    paused right after this fix shipped, before the user re-tested Enter. **First thing next
+    session:** confirm Enter now submits, and separately re-confirm `v0.2.4`'s journal-write fix
+    with actual console output (`getJournal().slice(-1)`) — both fixes were shipped and installed
+    but the final live confirmation didn't happen before the pod was stopped.
+  - **Everything else on the M3 Done-when list was explicitly confirmed live this session**:
+    chips cycle and persist across reload; RECLAIM purges the queue and is sticky across reload
+    and scene change (and, after Bug 4's fix, releasable); `undo ⟲` with N=2 correctly reverted
+    2 of 3 seeded transactions (journal entries preserved with `reverted: true`, not deleted);
+    panel confirmed invisible to a non-GM login. The RECLAIM journal-marker item was covered by
+    `vitest` (`tests/panel.test.js`, pre-existing) but not re-confirmed with live console output
+    this session — lower priority than the two Enter/journal items above, but also worth a quick
+    check next session.
+  - **Pattern worth naming:** three of the five bugs (4, 5, 6) were things STATUS.md's own
+    2026-08-11 entry described as already built. All three were real gaps, not documentation
+    drift — the code simply didn't do what the notes said. The lesson isn't "STATUS.md is
+    unreliable," it's the one `AGENTS.md` already states: a live-Foundry pass is not optional
+    once DOM/`ApplicationV2` code is involved, and `vitest`-only verification of a guarded class
+    that vitest never constructs is verification of everything except the part most likely to
+    break.
 
 ## Known forward references in the spec
 
