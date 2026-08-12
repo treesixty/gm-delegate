@@ -8,9 +8,9 @@
 |---|---|
 | Current milestone | **M3 — Panel. DONE** (logic half — see next-session note). Done-when checklist built, 6 of 6 items covered by `vitest`. M4 (EventBus) is next. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer), `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **70/70 passing** (node v24.14.1, npm 11.11.0). |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11** — see decision log entry below for per-item results. |
-| Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1; replaced `kcydos2bisfmhh` 2026-08-11 after a stuck host), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **stopped** (disk persists, billing paused). **Stop, never terminate, between sessions** — see note below. |
+| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **77/77 passing** as of M3 (node v24.14.1, npm 11.11.0). |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11.** M2 verified via vitest only (no live Foundry). **M3's ApplicationV2 shell is NOT yet live-verified** — see decision log, this pod would not start this session. |
+| Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **EXITED and stuck — 14 consecutive `start-pod` failures on 2026-08-11/12** ("not enough free GPUs on the host machine"), including 10 in a row via a 60s retry loop. **Next session: terminate + recreate is very likely required** (this is the second session this has happened; it did not self-clear last time either). `module.json` v0.2.0 / GitHub release `v0.2.0` are ready to install the moment a pod is up — no code changes needed first. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
@@ -372,6 +372,36 @@ why — otherwise a future session will relitigate it again.)*
     context menu (TypeDoc confirms the protected method that must fire it, not the hook's
     literal name). Both are called out as **re-verify live** in §0 rather than presented as
     confirmed.
+
+- **2026-08-11 (continued)** — **Committed and pushed M3** (`118d513`), bumped `module.json`
+  to **0.2.0**, and cut GitHub release **`v0.2.0`** with the zip asset (`module.json`,
+  `scripts/`, `styles/`, `templates/` at zip root — verified the asset resolves with a real
+  `curl -IL`, 302 → 200). This is ready to install; nothing about it is blocked.
+  - **The live-Foundry verification pass this warranted did NOT happen.** `start-pod` on
+    `ewsciq5y9ni2dr` failed **14 times in a row** ("not enough free GPUs on the host machine"),
+    including a 10-attempt, 60s-interval retry loop (`CronCreate`, cancelled after it hit the
+    stop condition). This is the **same failure STATUS.md already documented once**
+    (2026-08-11, earlier same day: 3/3 failed, required terminate + recreate) — it is
+    recurring, not a fluke, and retrying alone does not clear it.
+  - **User declined terminate + recreate for this session** (cost/time: ~10-15 min, fresh
+    license activation, fresh admin key, possible region change, and the persistent mount
+    gets rebuilt from scratch — this is destructive enough that it should never happen without
+    asking, and did not this time). **So M3's Done-when checklist is verified via `vitest`
+    only** (`tests/panel.test.js`, all logic paths) — the `ApplicationV2` shell itself (does it
+    actually render, do the chips visually cycle, is the panel actually invisible to a non-GM
+    login) is **unverified**. Treat M3 as logic-complete, not demo-complete.
+  - **Next session, first move:** `mcp__runpod__get-pod` on `ewsciq5y9ni2dr` to see if the host
+    freed up on its own; if not, terminate + recreate (get sign-off first — same as this
+    session), reinstall via Setup → Install Module with the `v0.2.0` manifest URL, then run
+    M3's Done-when checklist by hand: cycle each chip and reload, hit RECLAIM and confirm the
+    queue empties and survives a scene change, run `undo ⟲` with N>1, and confirm a non-GM
+    login never sees the panel at all.
+  - **Recurring-failure pattern worth naming for its own sake:** this GPU-availability error
+    has now failed to self-clear via retry twice in a row (first time: 3/3 failed then cleared
+    only via recreate; this time: 14/14 failed, no recreate attempted). The "retry a couple of
+    times" mitigation noted after the *first* incident is no longer a reasonable expectation —
+    budget for terminate + recreate being the default outcome, not the fallback, whenever this
+    pod has been stopped for more than a few hours.
 
 ## Known forward references in the spec
 
