@@ -12,7 +12,7 @@
       </button>
     {{/each}}
     <button type="button" class="reclaim {{#if reclaimed}}active{{/if}}" data-action="reclaim">
-      RECLAIM{{#if reclaimed}} (active){{/if}}
+      {{#if reclaimed}}RECLAIMED — click to release{{else}}RECLAIM{{/if}}
     </button>
   </div>
 

@@ -62,7 +62,21 @@ export async function cycleSubsystemMode(subsystem) {
 // never shows a stale "still delegated" state), then purge, then notify,
 // then log. All four steps are local; only the notify step depends on the
 // socket (M5), and that step is stubbed.
+//
+// Toggle, not one-way: the spec and the M3 Done-when list both say control
+// "does not come back until you explicitly hand it back" — that phrasing
+// requires a hand-back path to exist. Live-Foundry testing (2026-08-12)
+// found none had been built; RECLAIM only ever set sceneOverride, nothing
+// ever cleared it. Clicking RECLAIM again while active is that explicit
+// hand-back — same button, same deliberateness, no new UI surface.
 export async function reclaim() {
+  const alreadyReclaimed = getPolicy().sceneOverride === "all_off";
+  if (alreadyReclaimed) {
+    await setSceneOverride(null);
+    const entry = await note({ status: "RECLAIM_RELEASED" });
+    activeInstance?.render();
+    return entry;
+  }
   await setSceneOverride("all_off");
   queued.length = 0;
   sendPolicyRevoked();

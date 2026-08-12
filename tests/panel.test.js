@@ -64,6 +64,18 @@ describe("Panel (§4.7) — Done when", () => {
     expect(entry.reverted).toBe(false);
   });
 
+  it("RECLAIM is a toggle: calling it again while active releases control back", async () => {
+    await reclaim();
+    expect(getPolicy().sceneOverride).toBe("all_off");
+
+    await reclaim();
+    expect(getPolicy().sceneOverride).toBe(null);
+    expect(modeFor("random_encounters", "decide")).toBe("propose"); // back to DEFAULT_POLICY
+
+    const entry = getJournal().find((e) => e.status === "RECLAIM_RELEASED");
+    expect(entry).toBeTruthy();
+  });
+
   it("undo reverts the last N executed transactions, not just the last one", async () => {
     const actors = {
       "Actor.a": { name: "A-old" },
