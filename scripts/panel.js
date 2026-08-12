@@ -197,6 +197,17 @@ export const GMDelegatePanel = AppV2Api
       _onFirstRender(context, options) {
         super._onFirstRender?.(context, options);
         activeInstance = this;
+        // Delegated on the root element (persists across PARTS re-renders,
+        // unlike the <input> itself) so Enter submits the same way [ ask ]
+        // does. Live-Foundry testing (2026-08-12) found this was never
+        // wired despite the M3 Done-when list requiring it — only the
+        // button's click handler existed.
+        this.element.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          if (!event.target.matches('input[name="triggerText"]')) return;
+          event.preventDefault();
+          GMDelegatePanel._onAsk.call(this);
+        });
       }
 
       async close(options) {
