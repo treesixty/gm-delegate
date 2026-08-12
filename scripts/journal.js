@@ -137,13 +137,11 @@ export async function commit(tx, result) {
   let placeables = null;
   if (result?.placeables) {
     const { layer, docs } = result.placeables;
-    // Unverified whether v14 core already records history on a programmatic
-    // createEmbeddedDocuments (STATUS.md 2026-07-12 [WARN]). If it does, a
-    // second entry here means one undoHistory() pop leaves half the placement
-    // behind. So only record if the top of the stack is not already this
-    // exact create. Field names type/data are unconfirmed against
-    // CanvasHistoryEvent — if they differ, `already` stays false and this
-    // degrades to the previous always-record behaviour, which is safe.
+    // v14 core may already record history on a programmatic
+    // createEmbeddedDocuments; if it does, a second entry here means one
+    // undoHistory() pop leaves half the placement behind. So only record if
+    // the top of the stack is not already this exact create. Field names
+    // type/data confirmed against CanvasHistoryEvent, spec §0 2026-08-11.
     const hist = canvas[layer].history;
     const top = hist?.at(-1);
     const ids = docs.map((d) => d._id).sort();

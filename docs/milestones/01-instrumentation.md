@@ -1,6 +1,6 @@
 # M1 — Instrumentation + journal
 
-**State:** NEXT
+**State:** DONE — Done-when checklist passed 2026-08-11, see `STATUS.md`.
 **Read:** spec §6 (the log schema), §4.5 (journal + undo), §4.1 (layout)
 **Do not read:** anything about the agent server, the model, Discord, or the card.
 
@@ -97,13 +97,13 @@ templates, drawings, regions. **Does not cover Actor data.**
 
 ## Done when
 
-- [ ] A record with the full §6 schema is appended for a simulated card, and survives a
+- [x] A record with the full §6 schema is appended for a simulated card, and survives a
       Foundry reload.
-- [ ] `undoLast(1)` reverts a token placement via `storeHistory` / `undoHistory`.
-- [ ] `undoLast(1)` reverts an actor-data change via snapshot restore.
-- [ ] `undoLast(3)` works. **Undo is a stack, not a single step** — you will not notice a
+- [x] `undoLast(1)` reverts a token placement via `storeHistory` / `undoHistory`.
+- [x] `undoLast(1)` reverts an actor-data change via snapshot restore.
+- [x] `undoLast(3)` works. **Undo is a stack, not a single step** — you will not notice a
       bad auto-action for thirty seconds.
-- [ ] Reverted entries are *marked*, not deleted.
+- [x] Reverted entries are *marked*, not deleted.
 
 ---
 

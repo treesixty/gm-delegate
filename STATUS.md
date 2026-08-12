@@ -6,18 +6,18 @@
 
 | | |
 |---|---|
-| Current milestone | **M1 — Instrumentation + journal.** Code written; awaiting in-Foundry verification of the Done-when checklist. |
+| Current milestone | **M1 — Instrumentation + journal. DONE.** Done-when checklist (all 5 items) passed 2026-08-11 in Foundry. M2 (PolicyStore + Interceptor) is next. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **51/51 passing** (node v24.14.1, npm 11.11.0). Two bugs fixed to get there, see log below. |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. Not yet exercised — install/license/admin-key done 2026-08-11, M1 Done-when checklist not yet run against it. |
-| Dev Foundry host | RunPod pod `kcydos2bisfmhh`, secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://kcydos2bisfmhh-30000.proxy.runpod.net`. **Stop, never terminate, between sessions** — see note below. |
+| Test harness | **M0 landed 2026-08-10, executed 2026-08-10.** `npm install && npm test` — **51/51 passing** (node v24.14.1, npm 11.11.0). |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. **M1 Done-when checklist run and passed 2026-08-11** — see decision log entry below for per-item results. |
+| Dev Foundry host | RunPod pod `ewsciq5y9ni2dr` (EU-RO-1; replaced `kcydos2bisfmhh` 2026-08-11 after a stuck host), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://ewsciq5y9ni2dr-30000.proxy.runpod.net`. Currently **stopped** (disk persists, billing paused). **Stop, never terminate, between sessions** — see note below. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
 
 | # | Milestone | State |
 |---|---|---|
-| 1 | Instrumentation + journal | **code written, unverified in Foundry** |
+| 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
 | 2 | PolicyStore + Interceptor | not started |
 | 3 | Panel | not started |
 | 4 | EventBus | not started |
@@ -227,6 +227,65 @@ why — otherwise a future session will relitigate it again.)*
     a retry if the GPU-availability error recurs). Run the M1 Done-when checklist
     (`docs/milestones/01-instrumentation.md`) against it, and record the outcome plus the actual
     Foundry-v14 API verifications in spec §0.
+
+- **2026-08-11 (continued)** — **Fixed the admin key via `FOUNDRY_ADMIN_KEY` env var** (chosen by
+  the user, not an account credential) — boot log confirmed `Setting 'Admin Access Key'` and
+  `"adminPassword": "••••••••••••••••"` on the next boot. Held.
+  - **`start-pod` GPU-unavailability recurred and did not clear on retry** this time (3 attempts,
+    unlike the first incident which cleared on retry 2). Per the "if it doesn't come back,
+    terminate + recreate" fallback already noted above: did that. Pod is now `ewsciq5y9ni2dr`
+    (was `kcydos2bisfmhh`), landed in **EU-RO-1** this time (was US-CA-2 before) — confirms region
+    is not sticky across recreates either. `/data` was rebuilt from scratch: fresh Timed URL,
+    fresh license activation, fresh admin key. **This GPU-availability failure should be expected
+    to recur**; it is not a one-off.
+  - **Neither the RunPod web terminal nor the S3-compatible API can move files onto this pod.**
+    - Web terminal: the console's "Enable Web Terminal" toggle initializes for a few seconds then
+      reverts to disabled. Matches a known RunPod limitation — the web terminal injects a shell
+      into the running container, which fails on images with a custom non-standard entrypoint
+      (felddy's Foundry launcher runs as PID 1). Not fixable from our side.
+    - S3-compatible API (`docs.runpod.io/storage/s3-api`): requires a **standalone network volume
+      resource**, not the inline `mounts.persistent` volume this pod's `volumeInGb` param
+      produced. No tool available in this session can attach a standalone network volume to a
+      pod (same gap noted above for CPU pods — confirmed it also blocks this GPU-pod path).
+    - **What worked: Foundry's own manifest-URL module install**, which needs no pod-side file
+      access at all. Published the whole project as a public GitHub repo,
+      **`treesixty/gm-delegate`** (`git init` done this session — the project had no VCS before).
+      Module ships as a release asset zip (`module.json`, `scripts/`, `styles/` at the zip root —
+      a plain GitHub branch-archive zip has the wrong nesting for Foundry's installer, so it must
+      be a proper **Release** asset, not a branch zip). `module.json` now carries real `manifest`
+      (`.../master/module.json` — default branch is `master`, not `main`) and `download`
+      (`.../releases/download/v0.1.0/gm-delegate.zip`) fields. Installed successfully via
+      Foundry's Setup → Install Module dialog.
+      - **This is now the standing way to get code changes onto the dev Foundry pod**: edit
+        locally, bump the module version, rebuild the zip (root-level `module.json`/`scripts`/
+        `styles`, not a branch-archive zip), cut a new GitHub Release with that asset, then
+        reinstall/update the module from Foundry's UI. There is still no faster path (no
+        SSH, no terminal, no volume-level file access) unless a future session finds one.
+- **2026-08-11 (continued)** — **M1 Done-when checklist run to completion and passed, all 5
+  items**, via browser console against `game.modules.get("gm-delegate").api` on the RunPod
+  dev host (pod `ewsciq5y9ni2dr`), Foundry v14.365, dnd5e world.
+  - Card log: full §6-schema record appended, survived a real browser reload (`getCardLog()`
+    length and last entry unchanged pre/post F5).
+  - Layer A: `test.token.place` → `commit()` → `undoLast(1)` → token count 1→0 on canvas.
+  - Layer B: `test.actor.rename` → `commit()` → `undoLast(1)` → actor name reverted correctly.
+  - `undoLast(3)`: three renames collapsed back to the pre-transaction name in one call.
+  - Reverted entries marked not deleted: journal length unchanged, every reverted entry has
+    `reverted: true` and a non-null `revertedAt`.
+  - **Also resolved the 2026-07-12 `[WARN]`** on `commit()`'s duplicate-history guard: fetched
+    the live v14 API docs (not recalled from training data, per `AGENTS.md` priority 3) —
+    `CanvasHistoryEvent = { type, data, options }` is confirmed correct, not a lucky
+    safe-degrade. New §0 row added with URL + date; comment in `journal.js` updated.
+  - One false alarm along the way: an initial `canvas.tokens.history` check returned
+    `undefined`, which looked like the field-name guess was wrong. It wasn't — the check ran
+    *after* `undoLast(1)` had already popped the one history entry, so an empty stack and a
+    missing property look identical from `.at(-1)`. Re-verified against the docs instead of
+    re-testing blind.
+  - Session hiccup en route: the module showed `installed: true, active: false` on this
+    Foundry instance even though the world/module state should have carried over from the
+    stop/start cycle — had to re-enable it via Manage Modules before `game.modules.get(...).api`
+    stopped being `undefined`. Not yet root-caused; note if it recurs.
+  - **Next session:** start M2 (PolicyStore + Interceptor). Dev pod `ewsciq5y9ni2dr` was left
+    running after this session at $0.74/hr — stop it if not immediately continuing.
 
 ## Known forward references in the spec
 
