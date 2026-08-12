@@ -1,16 +1,16 @@
 # Status
 
-**Updated:** 2026-08-12 (continued — session 3)
+**Updated:** 2026-08-12 (continued — session 4)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M4 — EventBus. Live-verified 2026-08-12.** `controlToken`, `createChatMessage`+`extractRoll`, `updateCombat` all confirmed reaching `EventBus.getBuffer()` correctly against a real pod. The HIGH-volatility `ChatMessage#rolls` gap is resolved: live instances hold parsed `Roll` objects, not JSON strings. Treat M4 as DONE — see decision log for the one open, non-blocking recommendation (swap `updateCombat` for `combatTurn`/`combatRound`). |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer, now with a collapse toggle), `scripts/eventbus.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
-| Test harness | `npm install && npm test` — **88/88 passing** as of this session (node v24.14.1, npm 11.11.0). |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1 and M3 previously live-verified. **M4 live-verified this session** — see decision log. M2 still vitest-only (no DOM). |
-| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **RUNNING as of this session's end** (started cleanly, no GPU-availability retry needed this time) — left running because the next session is expected to continue immediately. `module.json` **v0.3.3** / GitHub release `v0.3.3` are installed and live-verified on this pod. |
+| Current milestone | **M4 — EventBus. Live-verified 2026-08-12, refined further this session.** `controlToken`, `createChatMessage`+`extractRoll` confirmed reaching `EventBus.getBuffer()` against a real pod. `combat.turn` now sourced from `combatStart`/`combatRound`/`combatTurn` instead of `updateCombat` (adopted this session, was an open recommendation, see decision log). The HIGH-volatility `ChatMessage#rolls` gap is resolved: live instances hold parsed `Roll` objects, not JSON strings. M4 is DONE with no open items. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js` (real `ApplicationV2` panel + pure logic layer, collapse toggle, `voiceNpc()` now wired to the TokenHUD), `scripts/eventbus.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). |
+| Test harness | `npm install && npm test` — **90/90 passing** as of this session (node v24.14.1, npm 11.11.0). |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4 live-verified. M2 still vitest-only (no DOM). |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.4.0** / GitHub release `v0.4.0` installed and live-verified on this pod. |
 | Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
 
 ## Milestones
@@ -19,8 +19,8 @@
 |---|---|---|
 | 1 | Instrumentation + journal | **DONE — Done-when checklist passed 2026-08-11** |
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
-| 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed. One more bug (dead combat-tracker context menu) found and fixed this session, v0.3.2–v0.3.3.** |
-| 4 | EventBus | **DONE — live-Foundry Done-when checklist passed 2026-08-12.** |
+| 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed. Dead combat-tracker context menu fixed (v0.3.2–v0.3.3). Last remaining gap, `voiceNpc()`'s TokenHUD wiring, closed this session (v0.4.0), live-confirmed.** |
+| 4 | EventBus | **DONE — live-Foundry Done-when checklist passed 2026-08-12. `combat.turn` source swapped `updateCombat` → `combatStart`/`combatRound`/`combatTurn` this session (v0.4.0), live-confirmed no open items remain.** |
 | 5 | Agent server + ModelClient | not started |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
 | 6 | EncounterAgent, 5 tools | not started |
@@ -671,6 +671,84 @@ why — otherwise a future session will relitigate it again.)*
     `combatTurn`/`combatRound` swap (flagged above, not applied). Then either continue toward M5
     (agent server + ModelClient — see `AGENTS.md`'s explicit ban on writing `StageRunner` before
     M5a) or pick up the still-open `voiceNpc()` TokenHUD wiring gap, GM's call which first.
+
+- **2026-08-12 (continued, session 4)** — **First session using the Playwright MCP server end
+  to end** (navigate, click, evaluate) instead of relaying through the user, against pod
+  `d90mhv7i5kvqyg` (still running, US-NC-1, v0.3.3). Ran a smoke pass over M3/M4, not a new
+  milestone.
+  - **New landmine: the `/join` page can enter a client-side reload loop under Playwright's
+    headless Chromium** — `foundry.mjs` re-executed every ~2s for over a minute, the join form
+    never rendering (accessibility tree stuck at just the banner). Not a server problem (`curl`
+    to `/join` returned a clean single `200`). Resolved itself after navigating to `/game`
+    (redirected to `/join` since not logged in) and re-landing — the form rendered on that
+    second landing and never recurred this session. Not root-caused; note if it recurs, and
+    don't assume the join form is broken from one bad snapshot alone — try a re-navigate first.
+  - **Confirmed still working, live, via Playwright**: chip cycling (`ENC` propose→auto→off→
+    propose, persists across reload), `token.selected` landing in `EventBus.getBuffer()`,
+    `execute()`/`commit()` writing a correctly-shaped journal entry.
+  - **Scary-looking but not a gm-delegate bug, worth recording so it isn't rediscovered from
+    scratch:** running `test.actor.rename` against a **token-embedded actor UUID for an
+    unlinked token** (`Scene.X.Token.Y.Actor.Z`, `actorLink: false`) threw
+    `TypeError: 'ownKeys' on proxy: trap result did not include Symbol(DataFieldOperatorValue)`
+    from deep inside `Actor5e._initialize`/`NPCData` (dnd5e/Foundry core, not module code) —
+    but the rename and the subsequent `commit()` had already succeeded before the throw.
+    `undoLast(1)` then reported success and marked the journal entry `reverted: true`, but
+    `tokenDoc.actor.name` (the synthetic actor) kept showing the renamed value — looked exactly
+    like a Layer B undo bug specific to unlinked tokens. **It wasn't**: a full page reload
+    showed the server-persisted state (`tokenDoc.delta`, the synthetic actor, and the base
+    Actor) had all reverted correctly all along. The first crash left *that one actor's*
+    client-side DataModel instance corrupted for the rest of the tab's life — every `.update()`
+    on it afterward (even a plain, direct one, no gm-delegate code involved) resolved without
+    error but silently didn't change what the client displayed, while unrelated documents
+    (tested with a scene flag) updated normally in the same tab. **Lesson for future live
+    sessions: if a Document throws a proxy/DataModel error mid-update, don't trust that
+    specific document's client-side state again without a reload — verify against
+    server-persisted state, not the live object, before concluding undo is broken.**
+  - **Pod, panel, and world left in the same state found**: actor name and `ENC` chip both
+    back to their pre-session values; no version bump, no code change this session.
+
+- **2026-08-12 (continued, session 4)** — **Both open items from session 3 resolved, shipped as
+  `v0.4.0`, and live-confirmed against pod `d90mhv7i5kvqyg`** via the Playwright MCP server end
+  to end (no manual relay through the user this session).
+  - **`combat.turn` swapped from `updateCombat` to `combatStart`/`combatRound`/`combatTurn`.**
+    Before writing any code, live-tested the actual firing behavior against a real `Combat` on
+    the pod (not just the TypeDoc signatures already in §0): `startCombat()` fires only
+    `combatStart`; a same-round `nextTurn()` fires only `combatTurn`; a round-wrapping
+    `nextTurn()` fires only `combatRound` — confirmed mutually exclusive per advance across both
+    a 1-combatant and a 2-combatant tracker, so mapping all three to the single `combat.turn`
+    event (per `envelope.schema.json`, unchanged) carries no double-emit risk. All three read
+    `updateData.round`/`.turn` rather than the document, since they fire pre-write. Deployed as
+    `v0.4.0` and live-confirmed the fix's actual point: creating a `Combat`, adding a combatant,
+    and activating it — all real `Combat` writes that the old `updateCombat` hook would have
+    turned into noisy `combat.turn` emissions — now emit **nothing**; `startCombat()` alone
+    emits exactly one `combat.turn` with `{round: 1, turn: 0}`.
+  - **`voiceNpc()` wired to the TokenHUD.** Logic already existed from M3; before wiring the
+    button, live-verified `renderTokenHUD` actually fires (unlike the disproven
+    `getCombatTrackerEntryContext` from the M3 combat-tracker fix) — confirmed via
+    `canvas.hud.token.bind(token)`, handler args `(hud, html)` where `html` is a raw
+    `HTMLFormElement` (v14 has moved this HUD off jQuery) and `hud.object` is the bound `Token`
+    placeable. No prototype patch needed, a plain `Hooks.on` at `ready` is enough. **NPC
+    criteria, per the user's own definition** (not a bare `actor.type` check): not a
+    player-character and not player-controlled, i.e. `actor.type !== "character" &&
+    !actor.hasPlayerOwner`. `Actor#hasPlayerOwner` doesn't appear in TypeDoc's own `?q=` search
+    (same tooling gap as the row-28 `canvas.level.id` false alarm logged 2026-08-12) but is
+    confirmed live as a real boolean accessor. Deployed as `v0.4.0` and live-confirmed via the
+    real shipped hook (not a hand-mirrored copy): the button appears only for the NPC token,
+    clicking it calls `voiceNpc(actor.id)`, and `getPolicy().actorOverrides` picks up
+    `{npc_voice: {decide: "off", prompt: "off"}}` correctly.
+  - **Spec updated, not just code**: §4.6's `HOOKS` block (tagged `SHAPE — the hook list is
+    normative`) now shows the three combat hooks; §4.7 documents the NPC criteria; §0 has three
+    new/updated rows with dates and sources. `docs/milestones/04-eventbus.md` updated to match
+    (avoids the class of drift the 2026-08-10 §6/§7 renumbering incident already burned once).
+  - **Tests**: `tests/eventbus.test.js` covers all three combat hooks reading from `updateData`;
+    `tests/panel.test.js` covers `isNpcActor`'s player-character/player-owned exclusion. 90/90
+    passing.
+  - **World left clean**: the test `Combat` and the `voiceNpc` policy override created during
+    live verification were both deleted/reverted before the session ended; only the one
+    pre-existing empty-tracker `Combat` from an earlier session remains, untouched.
+  - **Also this session, before the above**: resumed general M3/M4 regression testing via
+    Playwright (chip cycling, `token.selected`, journal/undo) — see the immediately-preceding
+    entry above for that pass and the reload-loop / DataModel-proxy findings from it.
 
 ## Known forward references in the spec
 
