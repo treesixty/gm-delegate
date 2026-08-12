@@ -750,6 +750,61 @@ why — otherwise a future session will relitigate it again.)*
     Playwright (chip cycling, `token.selected`, journal/undo) — see the immediately-preceding
     entry above for that pass and the reload-loop / DataModel-proxy findings from it.
 
+- **2026-08-12 (continued, session 5)** — **Built M5 (agent server + ModelClient) end to end,
+  both halves, and verified the wire protocol against a real socket (not just vitest mocks).**
+  - **Corrected a real spec/reality conflict before writing any socket code, confirmed with the
+    user first.** §5.6 rule 3 said "the module is the server, the agent is the client, and the
+    agent reconnects." That's backwards: `scripts/socket.js` runs as a client-side `esmodule`
+    inside the GM's browser (`module.json` declares no server-side script), and browsers have no
+    API to listen for incoming connections — only `new WebSocket(url)` to dial out. Only the
+    agent, a real Node process, can bind a listening socket. Swapped: **agent listens on
+    127.0.0.1, module dials out and reconnects** with exponential backoff to the same 10 s
+    ceiling §5.6 already specified. Nothing else in §5.6 changes (HELLO, one RESULT per INTENT,
+    EVENT droppable, POLICY_REVOKED not advisory, localhost-only). Spec §5.6 rule 3 and §0 both
+    updated to record the correction rather than silently building around it — same class of
+    drift as the 2026-08-10 §6/§7 renumbering incident.
+  - **Module side (`scripts/`): `ulid.js`, `envelope.js`, `socket.js`.** No bundler exists for
+    the browser side (module.json loads raw esmodules), so the npm `ulid` and `ajv` packages
+    used on the agent side aren't importable here — `ulid.js` is a small dependency-free
+    Crockford-base32 generator, and `envelope.js` is a hand-rolled envelope-level validator
+    (v/type/id/ts/payload) kept in sync with `contracts/envelope.schema.json` by
+    `tests/envelope.test.js`'s drift check, same shape `journal.js`'s `CARD_SCHEMA_KEYS` already
+    uses for the identical reason. `socket.js` dials the agent, sends HELLO on open,
+    exponential-backoff reconnects to a 10s ceiling, turns inbound INTENT into `handleIntent()`
+    calls and replies with RESULT (echoing the envelope id), registers itself as
+    `eventbus.js`'s event sender and `panel.js`'s POLICY_REVOKED sender (same
+    callback-set-at-init shape as `notifyAgent`/`registerEventSender`), and logs the
+    module-side hop's `latency_ms` into M1's card log via `logCard()`. Full network RTT as seen
+    by the agent is **not** persisted to the card log — the RESULT payload schema has no field
+    for the agent to report its own timestamps back, and adding one is a `contracts/*` change
+    (propose, don't apply, per AGENTS.md); only the piece inside the module's own control
+    (INTENT received -> RESULT sent) is logged.
+  - **Agent side (`gm-delegate-agent/`, its own Node package, own `npm test`): `ulid.js`
+    (verbatim duplicate — no shared module boundary between the two runtimes),
+    `envelope.js` (real ajv `Draft2020` against `contracts/envelope.schema.json`, same
+    `ajv/dist/2020.js` import path `tests/contracts.test.js` already had to use to dodge the
+    draft-07 default validator), `config.js` (loads `config.yaml`), `modelClient.js` (one
+    OpenAI-compatible `/v1/chat/completions` interface per spec §1.5/§5.1 — built per the Build
+    section but **not called by anything yet**, same as M6's tool surface being out of scope),
+    `orchestrator.js` (WS-server-side INTENT/RESULT correlation by envelope id with a 5s timeout
+    matching §9's whole-card budget, EVENT buffering capped at 128, POLICY_REVOKED/UNDONE
+    handling, `detach()` rejects in-flight intents rather than replaying them per §5.6 rule 4),
+    `server.js` (binds `127.0.0.1` only, per-connection HELLO handshake), `index.js`
+    (entrypoint + a stdin-driven manual test harness — `rename <uuid>` / `reject` / `events` /
+    `revoked` — same console-driven-testing role `test-m1.js` played for M1, since no
+    EncounterAgent exists yet to generate real intents).
+  - **Verified locally (both `npm test` suites green, 111 module-side + 16 agent-side) and via a
+    throwaway end-to-end smoke script** (real `startServer`+`Orchestrator` in one process, a real
+    `ws` client standing in for `socket.js` in a second connection, both over an actual
+    `127.0.0.1:8765` socket, not `handleFrame()` called directly) — confirmed: HELLO round-trips,
+    a hardcoded EXECUTED intent round-trips end to end, a hard-banned intent round-trips REJECTED
+    with the structured reason, POLICY_REVOKED reaching the agent stops emission until the next
+    HELLO, and killing the module connection leaves the agent process alive with
+    `orchestrator.connected === false`. Smoke script deleted after use (not part of the repo).
+  - **Not yet done this session (continues below once the release ships):** the actual
+    live-Foundry pass — real browser, real `scripts/socket.js` dialing a real locally-run agent
+    process, driven via Playwright against pod `d90mhv7i5kvqyg`.
+
 ## Known forward references in the spec
 
 The spec's code snippets reference things built in later milestones. This is expected;

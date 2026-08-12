@@ -15,10 +15,12 @@ import { handleIntent, execute } from "./interceptor.js";
 import { EXECUTORS } from "./executors/index.js";
 import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant, voiceNpc, isNpcActor } from "./panel.js";
 import { registerHooks as registerEventBusHooks, getBuffer, registerEventSender, extractRoll } from "./eventbus.js";
+import { registerSocketSettings, connect as connectSocket } from "./socket.js";
 
 Hooks.once("init", () => {
   registerJournalSettings();
   registerPolicySettings();
+  registerSocketSettings();
 
   // "I'll take this one" (§4.7, right-click a combatant in the tracker).
   // Live-verified 2026-08-12 (RunPod pod, v14.365, dnd5e): v14's
@@ -54,8 +56,10 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
-  // Console access for M1/M2/M3 testing; the socket (M5) becomes the real
-  // caller of handleIntent.
+  connectSocket(); // spec §5.6, corrected: the module dials out, the agent listens.
+
+  // Console access for M1/M2/M3 testing; the socket (M5) is the real caller
+  // of handleIntent now, this stays for manual/console-driven testing.
   game.modules.get("gm-delegate").api = {
     logCard,
     getCardLog,

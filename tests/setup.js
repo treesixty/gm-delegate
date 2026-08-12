@@ -28,7 +28,8 @@ globalThis.game = {
     find: vi.fn(() => null),
     importFromCompendium: vi.fn()
   },
-  modules: new Map(),
+  // socket.js reads game.modules.get(MODULE_ID).version for its HELLO frame.
+  modules: new Map([["gm-delegate", { version: "0.0.0-test" }]]),
   user: { isGM: true }
 };
 

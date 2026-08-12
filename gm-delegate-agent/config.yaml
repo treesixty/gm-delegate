@@ -1,0 +1,29 @@
+# gm-delegate-agent config (spec §5.1). The `models`/`embeddings` blocks below
+# are copied verbatim from the spec's NORMATIVE example — the three embedding
+# lines (endpoint /api/embed, request_key "input", response_path
+# "embeddings[0]") fail SILENTLY if changed, returning an empty vector rather
+# than an error (verified 2026-08-10, spec §0). Do not "fix" them without
+# re-reading that note.
+#
+# `ws` is an addition this file needed that the spec's example didn't show:
+# where the agent's own listening socket binds (§5.6, corrected — the agent
+# is the WS server, the module dials in).
+
+workspace: "./gm-session" # the ICM runtime workspace (§5.5), not used before M5a
+
+ws:
+  host: "127.0.0.1" # localhost only (§5.6 rule 6) — never 0.0.0.0
+  port: 8765
+
+models:
+  classifier: { endpoint: "http://localhost:8080/v1", model: "qwen3.5-9b-q4km", max_tokens: 32 }
+  encounter: { endpoint: "http://localhost:8080/v1", model: "qwen3.5-9b-q4km", max_tokens: 200 }
+  # served by llama-server, NOT Ollama (no working Qwen3.5 GGUF there — §0/§2)
+  # swap any of these to Anthropic behind a shim, per-subagent, without touching agent code
+
+embeddings:
+  endpoint: "http://localhost:11434/api/embed" # NOT /api/embeddings — deprecated, returns empty
+  model: "nomic-embed-text"
+  request_key: "input" # NOT "prompt"
+  response_path: "embeddings[0]" # NOT "embedding"
+  keep_alive: -1 # pin in VRAM; otherwise ~1.3s cold start after 5min idle

@@ -1,0 +1,19 @@
+{
+  "name": "gm-delegate-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local agent server for gm-delegate (spec §5). Own Node process, own deps — no build step shared with the Foundry module. Binds 127.0.0.1; the module dials in (spec §5.6, role swap corrected 2026-08-12, see STATUS.md).",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ws": "^8.18.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.5"
+  }
+}

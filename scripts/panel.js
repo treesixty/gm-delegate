@@ -122,11 +122,24 @@ export function isNpcActor(actor) {
   return !!actor && actor.type !== "character" && !actor.hasPlayerOwner;
 }
 
-// Stub — the socket is M5 (spec §5.6). Schema-valid: matches
-// envelope.schema.json's $defs.policyRevoked exactly.
+// The socket (M5, spec §5.6) registers its sender here at connect time, same
+// "callback set at init" shape eventbus.js's registerEventSender and
+// journal.js's notifyAgent use — panel.js must not import socket.js directly
+// (that would be the reverse of the one import-cycle rule AGENTS.md actually
+// bans: journal.js -> socket.js. This one is socket.js -> panel.js, which is
+// fine, but going the other way here would still couple this file to a
+// module that doesn't exist outside a real client).
+let policyRevokedSender = null;
+
+export function registerPolicyRevokedSender(fn) {
+  policyRevokedSender = fn;
+}
+
+// Schema-valid: matches envelope.schema.json's $defs.policyRevoked exactly.
 function sendPolicyRevoked() {
   const payload = { scope: "all_off", ts: Date.now() };
-  console.log(`${MODULE_ID} | POLICY_REVOKED (stub, socket is M5) |`, payload);
+  if (policyRevokedSender) policyRevokedSender(payload);
+  else console.log(`${MODULE_ID} | POLICY_REVOKED (no agent connected yet) |`, payload);
   return payload;
 }
 
