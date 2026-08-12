@@ -4,7 +4,10 @@
     the outer wrapper — ApplicationV2 requires an HTML file to have a single
     root element (verified live, 2026-08-12: three sibling .row divs threw
     "Template part must render a single HTML element"). }}
-<div class="gm-delegate-panel-inner">
+<div class="gm-delegate-panel-inner {{#if collapsed}}collapsed{{/if}}">
+  <div class="row toggle">
+    <button type="button" class="collapse-toggle" data-action="toggleCollapse">{{#if collapsed}}&#9656;{{else}}&#9662;{{/if}} GM Delegate</button>
+  </div>
   <div class="row chips">
     {{#each chips}}
       <button type="button" class="chip {{#if this.active}}active{{/if}}" data-action="cycleChip" data-subsystem="{{this.key}}">

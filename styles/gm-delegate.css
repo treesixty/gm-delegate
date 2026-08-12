@@ -36,6 +36,30 @@
   border-bottom: none;
 }
 
+/* Collapse toggle: M3 shipped the panel as an always-on full-width top bar
+   and deferred the resulting visual overlap with Foundry's own top chrome as
+   cosmetic-only. Live use during M4 found it actually blocks work (e.g.
+   scene creation), so give the GM an instant way to get it out of the way
+   instead of trying to out-guess Foundry's chrome layout with positioning. */
+#gm-delegate-panel .row.toggle {
+  padding: 2px 8px;
+  border-bottom: none;
+  background: rgba(20, 20, 20, 0.75);
+}
+
+#gm-delegate-panel .collapse-toggle {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+
+#gm-delegate-panel .gm-delegate-panel-inner.collapsed .row:not(.toggle) {
+  display: none;
+}
+
 #gm-delegate-panel .chip {
   background: #333;
   color: #eee;

@@ -170,8 +170,14 @@ export const GMDelegatePanel = AppV2Api
           reclaim: GMDelegatePanel._onReclaim,
           ask: GMDelegatePanel._onAsk,
           undo: GMDelegatePanel._onUndo,
+          toggleCollapse: GMDelegatePanel._onToggleCollapse,
         },
       };
+
+      // UI-only, not persisted (resets on reload) and not routed through
+      // journal/policy — collapsing the bar has no game-state effect, unlike
+      // every other action here.
+      collapsed = false;
 
       static PARTS = {
         panel: { template: "modules/gm-delegate/templates/panel.hbs" },
@@ -191,6 +197,7 @@ export const GMDelegatePanel = AppV2Api
           }),
           reclaimed: policy.sceneOverride === "all_off",
           queued: queued.map((intent) => JSON.stringify(intent, null, 2)),
+          collapsed: this.collapsed,
         };
       }
 
@@ -235,6 +242,11 @@ export const GMDelegatePanel = AppV2Api
         const input = this.element.querySelector('input[name="undoN"]');
         const n = Math.max(1, parseInt(input?.value, 10) || 1);
         await performUndo(n);
+      }
+
+      static _onToggleCollapse() {
+        this.collapsed = !this.collapsed;
+        this.render();
       }
     }
   : GMDelegatePanelUnavailable;
