@@ -68,6 +68,11 @@ export class ModelClient {
   async chatComplete(subagentKey, { systemPrompt, messages, tools } = {}) {
     const model = this.#entries[subagentKey];
     if (!model) throw new Error(`ModelClient: no config for subagent "${subagentKey}"`);
-    return this.#models.complete(model, { systemPrompt, messages, tools });
+    // config.yaml's max_tokens was never actually reaching the server before
+    // this (STATUS.md 2026-08-14 session 10) — pi-ai's complete() only reads
+    // options.maxTokens, not model.maxTokens, so generation was unbounded
+    // (confirmed live via /slots: n_predict: -1) despite the config comment
+    // claiming otherwise. This is the tail-risk fix, not a median-latency one.
+    return this.#models.complete(model, { systemPrompt, messages, tools }, { maxTokens: model.maxTokens });
   }
 }

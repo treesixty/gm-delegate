@@ -1877,9 +1877,68 @@ why — otherwise a future session will relitigate it again.)*
       per-option latency/risk/design-tension breakdown) is in the agent's report, not
       reproduced here in full — re-run the same investigation if this file's summary is ever in
       doubt, the agent's methodology (query `llama-server` directly) is cheap to repeat.
-  - **Next session:** implement step 1 (CUDA build swap + per-completion instrumentation) and
-    re-measure before deciding whether step 2's `stageRunner.js` PR is even necessary. Only
-    reconsider stage-merging if both steps together still leave the median short of 5s.
+  - **Same session, continued: implemented step 1 and step 2, both from live measurement, not
+    projection.** `stageRunner.js` now logs per-completion wall time + `usage.input`/`output`/
+    `cacheRead` (STATUS.md's own instrumentation ask, ~5 lines).
+    - **Step 1 (CUDA build swap): tested, and rejected — the agent's #1-ranked, "zero risk"
+      recommendation turned out to be a regression on this specific machine.** First pass (CUDA
+      `b10424` vs the running Vulkan `b10375`) looked promising but was confounded: a 49-build
+      version gap, and `/props` showed a different `chat_format` (`peg-native` → `Content-only`)
+      and empty `generation_prompt`, i.e. more than just the backend changed. Re-ran with the
+      *matching* `b10375` CUDA build (same binary, same flags, same script) to isolate the
+      variable properly: **Vulkan median 3967ms vs CUDA median 7111ms, n=6 each** — CUDA is
+      *slower* here, not faster. Reverted to the Vulkan `b10375` build (winget install,
+      unchanged). This is exactly why the agent flagged the projection "unverified for this
+      specific box" — verified, and the answer was no. Do not re-attempt this swap without a
+      new reason to suspect the hardware/driver situation changed.
+    - **Along the way, the new `cacheRead` instrumentation settled the agent's own remaining
+      open question for free**: a same-build CUDA sanity-check run showed call 2's
+      `cacheRead=2171` against call 1's `input=2143` — confirms within-stage prompt-prefix
+      caching is genuinely working, and that it also persists *across separate process
+      invocations* against the same running `llama-server` (unrelated runs showed an elevated
+      baseline `cacheRead` on their very first call, not just later ones) — a stronger form of
+      caching than the agent's report established.
+    - **Step 2: the bundled `stageRunner.js`/`index.js`/`modelClient.js` PR, all four fixes
+      together.** `runStage()` gained three new optional params: `useFsTools` (default `true`,
+      preserves the existing generic contract — `index.js` passes `false` for both `20_resolve`
+      and `30_scene`, since neither stage's `CONTEXT.md` asks for catalog lookups, and this also
+      deletes the session-9 4th failure mode outright), `terminalTool` (short-circuits the loop
+      the moment a named tool call succeeds — `index.js` passes `"propose_encounter"` for
+      `30_scene`, skipping the wasted 5th completion whose text nothing reads), and
+      `maxIterations` (default still `MAX_TOOL_ITERATIONS`/8 — `index.js` passes `4` for
+      `20_resolve`, `3` for `30_scene`, a tail guard, not a median fix). **Correctness bug
+      caught and fixed before landing**: the first `terminalTool` cut only checked the
+      transport-level `isError` flag, which does NOT cover a domain-level rejection (`sendIntent`
+      returning `REJECTED` comes back as a normally-resolved `{"error":"POLICY_OFF"}` string, same
+      convention `index.js`'s own `validCalls()` already uses) — a rejected `propose_encounter`
+      would have wrongly short-circuited the loop as if it had succeeded. Added a
+      `resultHasError()` check (parses the JSON, looks for an `error` field) alongside `isError`.
+      Caught by writing the negative-case test *before* trusting the feature, not by manual
+      review. `modelClient.js`'s `chatComplete()` now passes `{ maxTokens: model.maxTokens }` as
+      `complete()`'s third argument — confirmed live via `/slots` mid-request: `n_predict: 2048`,
+      was `-1` before the fix.
+    - **4 new tests** in `tests/stageRunner.test.js` (32/32 total, up from 28): `maxIterations`
+      override, `useFsTools: false` actually removes the tools from the surface, `terminalTool`
+      short-circuits on success, `terminalTool` does NOT short-circuit on a domain-level error
+      (the one that caught the bug above). No `modelClient.test.js` added — this project verifies
+      that kind of thin wrapper against the real service, not by mocking pi-ai's internals; the
+      `/slots` check above is that verification.
+    - **Result, measured (not projected), local-only (no Foundry, same throwaway-script
+      methodology as session 9's baseline): median 6.5s → ~4055ms, n=10** (sorted:
+      1803–5835ms). Bigger drop than the agent's own ~0.9s projection for step 2 alone — most of
+      the extra gain is likely the elimination of the 4th-failure-mode timeouts, which were
+      dragging the tail up in every prior local sample, not a pure per-call speedup.
+    - **Not yet done: a live-Foundry `resolve N` to confirm tool-call validity didn't regress**
+      from the 12/12 clean session-10 baseline (dropping `list_files`/`read_file` and lowering
+      iteration caps are exactly the kind of change that *should* be safe per each stage's own
+      `CONTEXT.md`, but "should be safe" is a claim to verify, not assume, per this project's own
+      repeated lesson about vitest-only confidence). Needs the pod up again — ask before spending
+      that time/cost, same as every prior pod decision this session.
+  - **Next session:** get the live-Foundry `resolve N` re-check above, then read whether the new
+    ~4s local-only / (extrapolating the session-10 ~1.3s real-Foundry-hop delta) **~5.3s live
+    median** clears <5s outright or needs a further push. If it's still short, option 4 from the
+    agent's report (pre-resolve the roll table in code, skip the `list_roll_tables` model round
+    trip entirely) is the next-cheapest lever, not stage-merging.
 
 ## Known forward references in the spec
 

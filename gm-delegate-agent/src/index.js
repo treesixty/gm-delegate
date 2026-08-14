@@ -51,6 +51,16 @@ async function runEncounterFlow(text) {
     subagentKey: "encounter",
     userContent: resolveContent,
     domainTools: resolveDomainTools(orchestrator),
+    // Neither 20_resolve's CONTEXT.md nor 30_scene's asks for catalog
+    // lookups (30_scene's is explicit: "ground the scene in [trigger text
+    // and 20_resolve's result] alone") — dropping fsTools here also deletes
+    // the session-9 4th failure mode (fs-tool wandering after a
+    // domain-tool error) outright, not just latency (STATUS.md 2026-08-14
+    // session 10).
+    useFsTools: false,
+    // Typical successful run is 2-3 iterations (list_roll_tables, roll_on_table,
+    // final text); this bounds the tail without touching the median.
+    maxIterations: 4,
   });
 
   if (resolveResult.timedOut || !resolveResult.content) {
@@ -67,6 +77,12 @@ async function runEncounterFlow(text) {
     subagentKey: "encounter",
     userContent: sceneContent,
     domainTools: sceneDomainTools(orchestrator),
+    useFsTools: false,
+    // propose_encounter succeeding IS this stage's output (30_scene/CONTEXT.md);
+    // stop immediately instead of spending a completion on final text nobody
+    // reads (index.js/panel only ever consume sceneResult.toolLog).
+    terminalTool: "propose_encounter",
+    maxIterations: 3,
   });
 
   return { resolveResult, sceneResult };

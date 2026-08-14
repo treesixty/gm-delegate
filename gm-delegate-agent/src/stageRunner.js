@@ -36,6 +36,14 @@ export function resolveWorkspace(configWorkspace) {
   return resolve(__dirname, "..", configWorkspace);
 }
 
+function resultHasError(resultText) {
+  try {
+    return Boolean(JSON.parse(resultText).error);
+  } catch {
+    return false; // not JSON with an error field => a real result
+  }
+}
+
 function safeResolve(workspace, relPath) {
   const abs = resolve(workspace, relPath);
   const rel = relative(workspace, abs);
@@ -192,12 +200,33 @@ export function sceneDomainTools(orchestrator) {
   return { tools, call, names: new Set(tools.map((t) => t.name)) };
 }
 
-export async function runStage({ stage, workspace, modelClient, subagentKey, userContent, domainTools }) {
+export async function runStage({
+  stage,
+  workspace,
+  modelClient,
+  subagentKey,
+  userContent,
+  domainTools,
+  // Not every stage needs workspace exploration — 20_resolve/30_scene don't
+  // (index.js opts them out, STATUS.md 2026-08-14 session 10: this also
+  // deletes the session-9 4th failure mode, fs-tool wandering after a
+  // domain-tool error). Left on by default so any future stage that DOES
+  // want catalog lookups (per this file's original M5a design) still gets
+  // it without passing anything.
+  useFsTools = true,
+  // Name of a tool whose successful (non-error) call means this stage is
+  // done — skips the extra completion the loop would otherwise spend just
+  // to produce a final text response nobody reads (index.js's 30_scene
+  // call: propose_encounter succeeding IS the output, per
+  // gm-session/30_scene/CONTEXT.md).
+  terminalTool,
+  maxIterations = MAX_TOOL_ITERATIONS,
+}) {
   const IDENTITY = readFileSync(safeResolve(workspace, "IDENTITY.md"), "utf8");
   const ROOT_CONTEXT = readFileSync(safeResolve(workspace, "CONTEXT.md"), "utf8");
   const STAGE_CONTEXT = readFileSync(safeResolve(workspace, `${stage}/CONTEXT.md`), "utf8");
 
-  const fs_ = fsTools(workspace);
+  const fs_ = useFsTools ? fsTools(workspace) : { tools: [], call: () => undefined, names: new Set() };
   const tools = [...fs_.tools, ...(domainTools?.tools ?? [])];
 
   const systemPrompt = [
@@ -211,8 +240,16 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
   const messages = [{ role: "user", content: userContent, timestamp: Date.now() }];
 
   const toolLog = [];
-  for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+  for (let i = 0; i < maxIterations; i++) {
+    const callStart = Date.now();
     const assistantMessage = await modelClient.chatComplete(subagentKey, { systemPrompt, messages, tools });
+    // Perf instrumentation for the §9 latency investigation (STATUS.md,
+    // 2026-08-14 session 10) — cacheRead tells us whether llama-server is
+    // actually reusing the cached system-prompt prefix across calls.
+    const u = assistantMessage.usage;
+    console.log(
+      `stageRunner | ${stage} call ${i + 1}: ${Date.now() - callStart}ms, input=${u?.input} output=${u?.output} cacheRead=${u?.cacheRead}`
+    );
     // Reasoning is off server-side (see modelClient.js), so this is normally
     // a no-op — but Qwen's own model card says prior-turn thinking must not
     // be replayed into history ("exclude thinking content from multi-turn
@@ -222,6 +259,7 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
 
     const toolCalls = assistantMessage.content.filter((b) => b.type === "toolCall");
     if (toolCalls.length) {
+      let hitTerminalTool = false;
       for (const tc of toolCalls) {
         let resultText;
         let isError = false;
@@ -245,7 +283,16 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
           isError,
           timestamp: Date.now(),
         });
+        // Not just !isError — that flag only covers transport-level failures
+        // (unknown tool, a thrown exception). domainTools.call() reports a
+        // domain-level failure (e.g. REJECTED) as a normal resolved string
+        // like {"error":"POLICY_OFF"}, same convention index.js's own
+        // validCalls() checks — so a terminal tool must be judged the same
+        // way, or a rejected propose_encounter would wrongly short-circuit
+        // the loop as if it had succeeded.
+        if (tc.name === terminalTool && !isError && !resultHasError(resultText)) hitTerminalTool = true;
       }
+      if (hitTerminalTool) return { stage, content: null, reasoning: "", toolLog, iterations: i + 1 };
       continue;
     }
 
@@ -259,5 +306,5 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
       .join("");
     return { stage, content, reasoning, toolLog, iterations: i + 1 };
   }
-  return { stage, content: null, reasoning: "", toolLog, iterations: MAX_TOOL_ITERATIONS, timedOut: true };
+  return { stage, content: null, reasoning: "", toolLog, iterations: maxIterations, timedOut: true };
 }

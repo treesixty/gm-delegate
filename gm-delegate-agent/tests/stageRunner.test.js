@@ -106,6 +106,81 @@ describe("runStage — the I/O contract (§5.5, the M5a-fixed harness gap)", () 
     expect(result.timedOut).toBe(true);
     expect(result.content).toBeNull();
   });
+
+  it("respects a caller-supplied maxIterations instead of the module default", async () => {
+    const modelClient = fakeModelClient([toolCallResponse("list_files", {})]); // never finishes
+    const result = await runStage({
+      stage: "20_resolve",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      maxIterations: 2,
+    });
+    expect(result.timedOut).toBe(true);
+    expect(result.iterations).toBe(2);
+    expect(modelClient.chatComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it("useFsTools: false drops list_files/read_file from the tool surface entirely", async () => {
+    const modelClient = fakeModelClient([
+      toolCallResponse("read_file", { path: "_world/secret.md" }),
+      finalResponse("done"),
+    ]);
+    const result = await runStage({
+      stage: "20_resolve",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      useFsTools: false,
+    });
+    expect(JSON.parse(result.toolLog[0].result)).toEqual({ error: "unknown tool: read_file" });
+
+    const [, { tools }] = modelClient.chatComplete.mock.calls[0];
+    expect(tools).toHaveLength(0);
+  });
+
+  it("terminalTool short-circuits the loop on a successful call instead of spending an extra completion on final text", async () => {
+    const modelClient = fakeModelClient([
+      toolCallResponse("propose_encounter", { creatures: [] }),
+      finalResponse("this should never be requested"),
+    ]);
+    const result = await runStage({
+      stage: "30_scene",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      domainTools: { tools: [], call: async () => JSON.stringify({ status: "QUEUED" }), names: new Set(["propose_encounter"]) },
+      terminalTool: "propose_encounter",
+    });
+    expect(result.iterations).toBe(1);
+    expect(result.content).toBeNull();
+    expect(modelClient.chatComplete).toHaveBeenCalledTimes(1); // never asked for a 2nd completion
+  });
+
+  it("terminalTool does NOT short-circuit on an errored call — the model still gets a chance to react", async () => {
+    const modelClient = fakeModelClient([
+      toolCallResponse("propose_encounter", { creatures: [] }),
+      finalResponse("could not propose"),
+    ]);
+    const result = await runStage({
+      stage: "30_scene",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      domainTools: {
+        tools: [],
+        call: async () => JSON.stringify({ error: "POLICY_OFF" }),
+        names: new Set(["propose_encounter"]),
+      },
+      terminalTool: "propose_encounter",
+    });
+    expect(result.iterations).toBe(2);
+    expect(result.content).toBe("could not propose");
+  });
 });
 
 describe("resolveDomainTools — 20_resolve's tools go over the real wire (M6 Done-when)", () => {
