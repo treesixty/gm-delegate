@@ -46,10 +46,14 @@ you just don't spend a tool call finding out what exists.
 ```
 tool: roll_on_table
 args: { tableId: "..." }
-result: { roll: 14, drawn: "Wolf Pack", dice: "2d4=5" }
+result: { roll: 14, drawn: "Wolf Pack", dice: "2d4=5", quantity: 5, quantityDice: "2d4=5",
+          packId: "dnd5e.actors24", actorId: "wolf000000000000" }
 ```
 
-Verbatim what Foundry returned. The `30_scene` stage turns this into beats; you do not.
+Verbatim what Foundry returned — **every field**, including `packId` and `actorId`, even
+when the tool call returned them as `null` (an unlinked table row is a real, valid
+outcome). `30_scene` copies `packId`/`actorId` from this line and cannot invent a
+substitute — omitting them here silently breaks that stage, it does not skip it.
 
 ## Validation
 

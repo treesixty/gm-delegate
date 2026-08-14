@@ -1,6 +1,6 @@
 # Status
 
-**Updated:** 2026-08-14 (session 10)
+**Updated:** 2026-08-14 (session 11)
 
 ## Where we are
 
@@ -2035,6 +2035,71 @@ why — otherwise a future session will relitigate it again.)*
     live median stands at **~6018–6436ms**, still short of <5s — worth deciding whether that
     gap is worth stage-merging's cost, or worth accepting and moving to the real four-session
     usage evaluation §9 has been waiting on since M7.
+
+- **2026-08-14 (session 11)** — **Not one of the §9 four real sessions** (those need actual
+  players; this was an AI-driven simulated walkthrough against live Foundry, explicitly
+  scoped as sanity-checking, not evaluation data). Found and fixed a real bug that would
+  have silently zeroed out the accept rate on any of the four real sessions.
+  - Pod `d90mhv7i5kvqyg` started clean (no GPU-availability retry), same host-swap license
+    re-verification as every prior restart (EULA re-accept, admin-key re-entry via the pod's
+    `FOUNDRY_ADMIN_KEY` env var, unchanged value). Module confirmed at **v0.7.2** (matches
+    `master`, no drift). Agent server started locally (`gm-delegate-agent`, `npm start`)
+    against the already-running local `llama-server`.
+  - Drove the panel's trigger input directly (not the `resolve N` stdin shortcut) to
+    exercise the real path: GM types trigger → `TRIGGER` frame → `runEncounterFlow` →
+    card renders in the panel → GM clicks a card button. First trigger ("three days
+    through the Thornwood, dusk is falling") produced a Wolf Pack card, 7698ms latency (in
+    range of prior sessions' variance, still over the 5s kill criterion).
+  - **Bug found: Accept & Place (and Edit → Use edited & Place) failed 100% of the time**,
+    `EXEC_FAILED: place_encounter: no pack RollTable.wrPvaOz83tmEmodd`. Root-caused live,
+    not guessed:
+    - First hypothesis (table rows aren't pack-linked — matches a stale comment in
+      `encounter.js`) was **wrong**, disproven live: the Thornwood table's rows genuinely
+      are pack-linked (`documentUuid: Compendium.dnd5e.actors24.Actor.mmWolf0000000000`),
+      and `fromUuid()` resolves it to a real SRD Wolf actor in a 441-entry pack. Said so
+      to the user rather than proceeding on the wrong fix once this surfaced — the user's
+      first pick ("re-author the table") would have been a no-op.
+    - **Actual cause: a cross-stage prompt contract gap in `gm-session/`.**
+      `20_resolve/CONTEXT.md`'s own output template only ever showed `{roll, drawn, dice}`
+      — it never told the model to include `packId`/`actorId` in its written result, even
+      though `roll_on_table`'s real tool result carries them. `30_scene/CONTEXT.md`
+      correctly instructs the model to copy `packId`/`actorId` **verbatim** from
+      `20_resolve`'s result — but `20_resolve`'s result, per `stageRunner.js`, is the
+      model's own free-text summary (`assistantMessage.content`, not the raw tool JSON),
+      so if the summary omitted them there was nothing to copy. `30_scene`'s contract
+      *does* anticipate an unlinked table ("say so... instead of calling `propose_encounter`
+      with invented values") but the model didn't take that path — it fabricated a value
+      (reused the table's own `tableId`) instead of declining. Two distinct findings: the
+      prompt-contract gap (fixable), and a 9B reliability gap on the decline-gracefully
+      instruction (not fixed this session, worth watching).
+  - **Fix: `gm-session/20_resolve/CONTEXT.md`'s output template now shows every field
+    `roll_on_table` actually returns**, including `packId`/`actorId`, with an explicit
+    instruction to include them even as `null` (an unlinked row is a real, valid outcome,
+    not a reason to drop the field). Workspace-only edit, not a `contracts/*` schema
+    change, so no STOP per `AGENTS.md`. `gm-delegate-agent`'s 35/35 tests still pass
+    (unaffected — `CONTEXT.md` content isn't asserted there). No restart needed:
+    `runStage()` calls `readFileSync` on the stage `CONTEXT.md` fresh per invocation.
+  - **Live-reverified same session, on the same running pod, no restart**: fired a second
+    trigger ("a pack of bandits blocks the road ahead"). Resulting proposal carried real
+    values — `packId: "dnd5e.actors24", actorId: "mmBandit00000000"` — no fabrication.
+    Clicked Accept & Place: world Actor "Bandit" imported, 3 tokens placed on canvas
+    (`quantity: 3` matched the card). Full path confirmed working end to end for the first
+    time this session.
+  - **Separate, smaller finding, not yet fixed:** the first card's `beats` array had
+    malformed entries — a literal `> ` markdown blockquote marker embedded in the text, and
+    one beat's sentence split mid-thought across two array elements
+    (`"...ears swiveled toward "` / `"the road"`). Confirmed via the raw proposal object,
+    not a render artifact. The second card's beats were clean. One sample each way — not
+    enough to call a pattern, but worth watching across the real four sessions since it
+    directly affects the "GM has to Edit" rate `beats` quality drives.
+  - Pod left running at end of session (Foundry + agent server both still up); the stale
+    first-card proposal (Wolf Pack, from before the fix) was clicked Skip to leave the
+    panel queue clean rather than left to expire.
+  - **Next session:** the real four §9 sessions can now actually measure accept rate —
+    this was the blocker. `gm-session/20_resolve/CONTEXT.md`'s fix is uncommitted; commit
+    it before relying on it past this session's running pod/agent process. Latency
+    decision from session 10 (stage-merging vs. accept-and-move-on) is still open and
+    unaffected by this session's work.
 
 ## Known forward references in the spec
 
