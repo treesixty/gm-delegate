@@ -134,3 +134,21 @@ describe("Orchestrator — EVENT buffer and UNDONE", () => {
     ).not.toThrow();
   });
 });
+
+describe("Orchestrator — TRIGGER (§4.7 GM command, M7)", () => {
+  it("dispatches an inbound TRIGGER to the registered onTrigger handler", () => {
+    const handler = vi.fn();
+    orchestrator.onTrigger(handler);
+    orchestrator.handleFrame({ v: 1, type: "TRIGGER", id: "01J9ZQK8Y7M3N4P5R6S7T8V9WX", ts: 1, payload: { text: "three days through the Thornwood" } });
+    expect(handler).toHaveBeenCalledWith({ text: "three days through the Thornwood" });
+  });
+
+  it("logs, does not throw, if a TRIGGER arrives with no handler registered", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() =>
+      orchestrator.handleFrame({ v: 1, type: "TRIGGER", id: "01J9ZQK8Y7M3N4P5R6S7T8V9WX", ts: 1, payload: { text: "x" } })
+    ).not.toThrow();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});

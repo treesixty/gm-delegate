@@ -1,0 +1,38 @@
+{{! The wandering-encounter card (spec §5.4). One instance per queued
+    proposal, included from panel.hbs via {{> card-encounter}} — registered
+    as a Handlebars partial in main.js's init hook (loadTemplates(), which
+    Foundry's own docs confirm registers loaded templates as partials, not
+    just caches them).
+
+    The provenance line is not decoration (07-card.md): it is the visible
+    proof that Foundry decided and the model only reported. Keep it above
+    the fold regardless of edit state. }}
+<div class="encounter-card">
+  <div class="card-header">
+    <span>WANDERING ENCOUNTER</span>
+    <span class="gm-only">GM only</span>
+  </div>
+  <div class="provenance">{{provenanceLine}}</div>
+  {{#if quantityLine}}<div class="provenance">{{quantityLine}}</div>{{/if}}
+
+  {{#if editing}}
+    <div class="creatures">{{creaturesLine}}</div>
+    <textarea class="card-edit" data-proposal-id="{{proposalId}}" rows="6">{{cardText}}</textarea>
+    <div class="card-actions">
+      <button type="button" data-action="cardEditConfirm" data-proposal-id="{{proposalId}}">Use edited &amp; Place</button>
+      <button type="button" data-action="cardEditCancel">Cancel</button>
+    </div>
+  {{else}}
+    <div class="creatures">{{creaturesLine}}</div>
+    <ul class="beats">
+      {{#each beats}}<li>{{this}}</li>{{/each}}
+    </ul>
+    <div class="hook">Hook: {{hook}}</div>
+    <div class="card-actions">
+      <button type="button" data-action="cardAccept" data-proposal-id="{{proposalId}}">Accept &amp; Place</button>
+      <button type="button" data-action="cardEditStart" data-proposal-id="{{proposalId}}">Edit</button>
+      <button type="button" data-action="cardReroll" data-proposal-id="{{proposalId}}">Reroll</button>
+      <button type="button" data-action="cardSkip" data-proposal-id="{{proposalId}}">Skip</button>
+    </div>
+  {{/if}}
+</div>

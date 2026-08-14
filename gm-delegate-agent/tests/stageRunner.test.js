@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Orchestrator } from "../src/orchestrator.js";
-import { runStage, resolveDomainTools } from "../src/stageRunner.js";
+import { runStage, resolveDomainTools, sceneDomainTools } from "../src/stageRunner.js";
 
 let workspace;
 
@@ -23,6 +23,8 @@ beforeEach(() => {
   writeFileSync(join(workspace, "CONTEXT.md"), "# CONTEXT\nworkspace map.");
   mkdirSync(join(workspace, "20_resolve"));
   writeFileSync(join(workspace, "20_resolve", "CONTEXT.md"), "# 20_resolve\ncall a tool, never compute.");
+  mkdirSync(join(workspace, "30_scene"));
+  writeFileSync(join(workspace, "30_scene", "CONTEXT.md"), "# 30_scene\ncall propose_encounter, never write prose.");
   mkdirSync(join(workspace, "_world"));
   writeFileSync(join(workspace, "_world", "secret.md"), "GM-only content the model must not need pre-loaded.");
 });
@@ -195,6 +197,64 @@ describe("resolveDomainTools — 20_resolve's tools go over the real wire (M6 Do
       subagentKey: "encounter",
       userContent: "go",
       domainTools: resolveDomainTools(orchestrator),
+    });
+
+    expect(JSON.parse(result.toolLog[0].result)).toEqual({ error: "POLICY_OFF" });
+  });
+});
+
+describe("sceneDomainTools — 30_scene's propose_encounter goes over the real wire (M7)", () => {
+  let orchestrator;
+  const creature = { name: "Wolf Pack", quantity: 5, descriptor: "lean, winter-starved", packId: "dnd5e.monsters", actorId: "wolf1" };
+  const proposalArgs = {
+    creatures: [creature],
+    beats: ["Sound first.", "They circle.", "Leader hangs back."],
+    hook: "Something worse drove them out of the deep wood.",
+    provenance: { tableId: "RollTable.abc", roll: 14, tableDice: "1d20", result: "Wolf Pack", quantity: 5, quantityDice: "2d4=5" },
+  };
+
+  beforeEach(() => {
+    orchestrator = new Orchestrator();
+  });
+
+  it("sends propose_encounter as a real INTENT, stage 'decide', and treats QUEUED as success", async () => {
+    let sentPayload;
+    attachAutoReplyingConn(orchestrator, (payload) => {
+      sentPayload = payload;
+      return { status: "QUEUED" };
+    });
+    const modelClient = fakeModelClient([
+      toolCallResponse("propose_encounter", proposalArgs),
+      finalResponse("proposed"),
+    ]);
+
+    const result = await runStage({
+      stage: "30_scene",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      domainTools: sceneDomainTools(orchestrator),
+    });
+
+    expect(sentPayload).toMatchObject({ subsystem: "random_encounters", stage: "decide", action: "propose_encounter", args: proposalArgs });
+    expect(JSON.parse(result.toolLog[0].result)).toEqual({ status: "QUEUED" });
+  });
+
+  it("reports a REJECTED intent as an error, same discipline as roll_on_table", async () => {
+    attachAutoReplyingConn(orchestrator, () => ({ status: "REJECTED", reason: "POLICY_OFF" }));
+    const modelClient = fakeModelClient([
+      toolCallResponse("propose_encounter", proposalArgs),
+      finalResponse("could not propose"),
+    ]);
+
+    const result = await runStage({
+      stage: "30_scene",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      domainTools: sceneDomainTools(orchestrator),
     });
 
     expect(JSON.parse(result.toolLog[0].result)).toEqual({ error: "POLICY_OFF" });

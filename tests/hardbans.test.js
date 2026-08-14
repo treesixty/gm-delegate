@@ -33,10 +33,6 @@ describe("hard bans (§1.4)", () => {
   it("has no executor name that hints at a banned capability", () => {
     // The ban is on the capability, not on one spelling of it. Catches
     // actor.hp.set, document.destroy, eval.js, searchAllPacks, and friends.
-    //
-    // Deliberately NOT matched: test.actor.rename. It writes actor data, which
-    // is fine there and only there, because the ban governs the agent's tool
-    // surface and test-m1.js is never exposed to the agent (see its header).
     const forbidden =
       /(\bhp\b.*\b(write|set|apply|damage)\b)|delete|destroy|\beval\b|searchall|search_all/i;
     for (const name of Object.keys(EXECUTORS)) {

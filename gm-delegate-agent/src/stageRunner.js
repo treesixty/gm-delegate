@@ -5,12 +5,16 @@
 // test" rule — and lets it find catalog files itself via read_file/list_files
 // scoped to the workspace.
 //
-// M6 scope: only 20_resolve's domain tools (list_roll_tables, roll_on_table)
-// go over the real wire here (orchestrator.sendIntent). 10_watch/30_scene
-// were validated by the M5a walk test using synthetic tool results; wiring
-// THEM for real — propose_encounter's wire path, the live EventBus trigger
-// chain that would drive 10_watch automatically — is M7/recap territory
-// (build-order §8 row 7), not M6's. See STATUS.md.
+// M6 wired 20_resolve's domain tools (list_roll_tables, roll_on_table) over
+// the real wire. M7 adds 30_scene's one real tool (propose_encounter,
+// sceneDomainTools below) — the two stages run as two separate runStage()
+// calls chained in one process by gm-delegate-agent/src/index.js's
+// runEncounterFlow(), no file I/O between them (STATUS.md: "two in-memory
+// stages" over the fuller file-based ICM chain, chosen for latency and
+// because no validate.py infra exists in this all-JS project). 10_watch
+// (linking a live trigger to a catalog doc) is still not wired for real —
+// M7's TRIGGER carries only GM text, no entity link — left for whenever the
+// live EventBus trigger chain (v2, §7) lands.
 //
 // Tool calling and message shapes are pi-ai's (2026-08-13 decision,
 // STATUS.md): Context.messages are UserMessage/AssistantMessage/
@@ -121,6 +125,69 @@ export function resolveDomainTools(orchestrator) {
     const result = outcome.result?.result ?? outcome.result;
     if (name === "roll_on_table") cachedRoll = result;
     return JSON.stringify(result);
+  }
+  return { tools, call, names: new Set(tools.map((t) => t.name)) };
+}
+
+// 30_scene's one real tool (§5.2/§5.4, M7): propose_encounter. Mirrors
+// contracts/tools.json's schema in TypeBox, same "hand-written, not loaded
+// from the JSON file" convention resolveDomainTools already established for
+// 20_resolve's tools.
+//
+// Unlike roll_on_table, QUEUED (not EXECUTED) is success: DEFAULT_POLICY
+// routes propose_encounter straight to the module's Panel.queue() in
+// "propose" mode without ever reaching an executor (M6 finding, STATUS.md —
+// there is deliberately no executor registered for this action). Anything
+// else — REJECTED (policy off), or the UNKNOWN_ACTION a flipped-to-"auto"
+// policy would produce, since no executor exists for this action even then
+// — is reported back to the model as an error, per 20_resolve/CONTEXT.md's
+// own rule: a tool surface that can't do what the moment needs escalates,
+// it doesn't get worked around.
+export function sceneDomainTools(orchestrator) {
+  const tools = [
+    {
+      name: "propose_encounter",
+      description:
+        "Emit an encounter proposal card for the GM. Does not place anything. Write BEATS the GM can perform from, never prose.",
+      parameters: Type.Object({
+        creatures: Type.Array(
+          Type.Object({
+            name: Type.String({ description: "e.g. 'Wolf Pack'." }),
+            quantity: Type.Integer({
+              minimum: 1,
+              description: "Comes from roll_on_table's resolved quantity. If you computed this yourself, that is a bug.",
+            }),
+            descriptor: Type.String({ description: "e.g. 'lean, winter-starved'. A phrase, not a sentence." }),
+            packId: Type.String({ description: "From roll_on_table's result. Do not invent one." }),
+            actorId: Type.String({ description: "From roll_on_table's result. Do not invent one." }),
+          })
+        ),
+        beats: Type.Array(Type.String({ minLength: 3, maxLength: 90 }), {
+          minItems: 3,
+          maxItems: 5,
+          description: "3 to 5 short fragments the GM performs from. Never prose, never a full sentence to read verbatim.",
+        }),
+        hook: Type.String({ minLength: 3, maxLength: 120, description: "One line. Why is this here? What does it imply?" }),
+        provenance: Type.Object({
+          tableId: Type.String(),
+          roll: Type.Integer(),
+          tableDice: Type.String({ description: "e.g. '1d20'." }),
+          result: Type.String({ description: "The drawn row, verbatim." }),
+          quantity: Type.Integer({ minimum: 1 }),
+          quantityDice: Type.String({ description: "e.g. '2d4=5'. From roll_on_table, never computed here." }),
+        }),
+      }),
+    },
+  ];
+  async function call(name, args) {
+    const outcome = await orchestrator.sendIntent({
+      subsystem: "random_encounters",
+      stage: "decide", // §4.3: propose_encounter is the decide-stage action
+      action: name,
+      args,
+    });
+    if (outcome.status !== "QUEUED") return JSON.stringify({ error: outcome.reason ?? outcome.status });
+    return JSON.stringify({ status: "QUEUED" });
   }
   return { tools, call, names: new Set(tools.map((t) => t.name)) };
 }

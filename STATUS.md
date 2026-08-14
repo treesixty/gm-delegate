@@ -1,17 +1,17 @@
 # Status
 
-**Updated:** 2026-08-13 (continued — session 6)
+**Updated:** 2026-08-14 (session 7)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M6 — encounter tools via ICM StageRunner. Live-verified 2026-08-13 (v0.6.0).** `roll_on_table` returns Foundry's real roll and resolved quantity over the real wire; the model never computed a number in any run. Tool-call validity issues found in initial testing (75% argument validity, occasional failure to stop calling a tool) were **root-caused to a misconfigured harness (wrong sampler settings, reasoning left on by accident) and fixed** — a clean 20-run re-test came back 100% valid, 0 timeouts, 0 loops. See the session-6 decision log entries. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1,encounter}.js` (test-m1 is throwaway, delete in M7). `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`, own `package.json`/`tests/`); `modelClient.js`/`stageRunner.js` now built on `@earendil-works/pi-ai` rather than a hand-rolled `fetch()`, since 2026-08-13. |
-| Test harness | Module: `npm install && npm test` — **126/126 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **24/24 passing**. (node v24.14.1, npm 11.11.0.) |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 still vitest-only (no DOM). |
-| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.6.0** / GitHub release `v0.6.0` installed and live-verified on this pod. |
-| Model in use | **Qwen3.5 9B Q4_K_M, serving locally, reasoning OFF.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Running with Qwen's own documented non-thinking sampler settings — `--temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --reasoning off --no-reasoning-preserve` — since 2026-08-13, after finding reasoning had been silently on (and unconfigured) since M5a. **Embeddings (`nomic-embed-text` via Ollama, `config.yaml`'s other endpoint) is still not set up** — out of scope for what was asked this session, noted as a remaining gap before anything that needs embeddings. |
+| Current milestone | **M7 — the card, with Edit. Build-complete, live-verification NOT run this session** (pod was deliberately kept stopped throughout — see decision log). All logic-side pieces are vitest-covered (184/184 across both packages); the DOM/ApplicationV2 half, the wire-triggered agent flow, and the latency/tool-call-validity Done-when numbers are unverified, same "logic-complete, not demo-complete" status M3 carried after its first session. **Do not treat M7 as done until a live pass runs.** |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `scripts/proposals.js` (new, §5.7), `templates/{panel,card-encounter}.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,encounter}.js` (`test-m1.js` deleted this session, per the standing 2026-07-12/2026-08-10 decision). `contracts/envelope.schema.json` gained a 7th frame type, `TRIGGER`. `gm-delegate-agent/` — `src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`; `orchestrator.js` and `index.js` gained the TRIGGER handler and the two-stage `runEncounterFlow()`; `stageRunner.js` gained `sceneDomainTools()`. `gm-session/30_scene/CONTEXT.md` rewritten to call `propose_encounter` instead of describing a markdown file. |
+| Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 and (as of this session) M7 are vitest-only so far. |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **Stopped this session, at the user's request, before any M7 code was written** — `module.json` on the pod is still **v0.6.0**; this session's changes are uncommitted and not on the pod. |
+| Model in use | **Qwen3.5 9B Q4_K_M, serving locally, reasoning OFF.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Running with Qwen's own documented non-thinking sampler settings — `--temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --reasoning off --no-reasoning-preserve` — since 2026-08-13. **Embeddings (`nomic-embed-text` via Ollama) still not set up** — unchanged this session. |
 
 ## Milestones
 
@@ -24,7 +24,7 @@
 | 5 | Agent server + ModelClient | **DONE — fully live-verified 2026-08-13 (v0.5.0, no code changes).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test + live handling. The session-5 WS handshake gap is closed: a real browser opened the handshake in ~12ms and completed a full INTENT→RESULT round trip through the actual agent process, over the real wire, executing against a real Actor. **Root cause of the session-5 failure is undetermined** — see decision log; two leading candidates were ruled out by direct A/B test, not confirmed as the fix. |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | **DONE — PASSED 2026-08-13, with a caveat on `30_scene` provenance. See decision log.** |
 | 6 | EncounterAgent, 5 tools | **DONE — Build Order's actual Done-when live-verified 2026-08-13 (v0.6.0): `roll_on_table` returns Foundry's real roll + resolved quantity, model never computes a number. Tool-call argument validity 75%, below >95% target — see decision log, a real finding, not swept under the rug.** |
-| 7 | The card, with Edit | not started — owns `propose_encounter`'s wire path, `place_encounter`'s real executor, and `proposals.js` (§5.7), deliberately deferred out of M6's scope |
+| 7 | The card, with Edit | **BUILD-COMPLETE, NOT live-verified (2026-08-14).** `propose_encounter`'s wire path, `place_encounter`'s real executor, `proposals.js`, the card UI, and the trigger→two-stage-agent→card round trip are all written and vitest-covered. No pod session ran against any of it. See the session-7 decision log entry for the full list of what still needs a live pass and the architectural forks resolved along the way. |
 | 8–10 | Contingent. Do not plan them yet. | — |
 
 Briefings: `docs/milestones/`.
@@ -1363,6 +1363,158 @@ why — otherwise a future session will relitigate it again.)*
     diagnostic work.
   - 126/126 module tests, 24/24 agent tests (the new one-roll-per-run test included) passing
     throughout.
+
+- **2026-08-14 (session 7)** — **M7 (the card, with Edit) built end to end: `propose_encounter`'s
+  wire path, `place_encounter`'s real executor, `proposals.js`, the card UI, and the trigger →
+  two-stage-agent → card round trip.** Deliberately **not** live-verified — the pod was stopped at
+  the user's explicit request before any M7 code was written, and building the module-side card
+  logic doesn't need it (same split M2/M3 established: vitest against mocked globals for logic,
+  live Foundry only for what actually needs a DOM). 156/156 module tests, 28/28 agent tests
+  (184 total, up from 150 at the start of the session).
+  - **Three real architectural forks surfaced while building this, all resolved with the user
+    before writing code that would have had to be thrown away:**
+    1. **The GM trigger needed a real wire path it never had.** `panel.js`'s `sendTrigger()` had
+       been a stub since M3 (STATUS.md, 2026-08-11: "What ships over the socket at M5 is
+       deliberately NOT decided here"). M7's own Done-when list needs it twice over — rendering a
+       card from a real GM prompt, and Reroll ("re-runs the agent") — so it couldn't stay
+       deferred. `contracts/envelope.schema.json`'s `EVENT` type was the obvious reuse candidate
+       but its `event` field is a closed enum tied to `eventbus.js`'s `HOOKS` table, so it would
+       have needed the identical schema edit as adding a new type. **Chosen: a 7th envelope type,
+       `TRIGGER`** (module → agent, `{ text }`, fire-and-forget, no reply in v1), over extending
+       `EVENT`'s enum — keeps a GM-authored command semantically distinct from passive hook
+       telemetry, at the cost of one more `$defs` entry. `contracts/envelope.schema.json`,
+       `scripts/envelope.js`'s `ENVELOPE_TYPES`, and spec §5.6's type table all updated together;
+       `gm-delegate-agent/src/envelope.js` needed no code change since it loads the schema JSON
+       directly through ajv.
+    2. **Two runStage() calls, chained in-process, not one and not a file-based ICM chain.**
+       `gm-session/20_resolve/CONTEXT.md`'s own contract ends at reporting a mechanical result;
+       `30_scene/CONTEXT.md` owns the card. But M6 only ever wired one `runStage()` call
+       (`20_resolve`), and nothing chains it to a second. Three options were on the table: fold
+       everything into 20_resolve's already-proven single stage (deviates from the two-stage
+       ICM split M5a validated); chain two `runStage()` calls in one process with no files (keeps
+       the tool-surface separation §5.5 explicitly wants, costs a second model round-trip);
+       or the fully literal ICM design — `out/` files, a `validate.py` gate per stage. Rejected
+       the third outright: no `validate.py` exists anywhere in this all-JS project, and `.py` in
+       a Node/Foundry codebase would be new infrastructure, not a missing file. **Chosen: two
+       in-memory stages** — `gm-delegate-agent/src/index.js`'s `runEncounterFlow(text)` calls
+       `runStage("20_resolve", ...)`, then feeds its `content` directly into
+       `runStage("30_scene", ...)` as `userContent`, no file I/O. Both the live `TRIGGER` handler
+       (`orchestrator.onTrigger`) and the manual `resolve`/`resolve N` stdin driver now share this
+       one function — previously `resolve` called `runStage("20_resolve", ...)` directly, which
+       stops one stage short of ever producing a card.
+    3. **`propose_encounter`'s `creatures[]` needs `packId`/`actorId`, and nothing produced them.**
+       The Thornwood table's actual rows are plain text (STATUS.md, 2026-08-12); `roll_on_table`'s
+       executor never extracted a compendium link at all. Fetched v14's real `TableResult` schema
+       (not recalled) rather than guess: it exposes a single `documentUuid` field, not the older
+       `documentCollection`/`documentId` pair. `encounter.js`'s `rollOnTable` now resolves
+       `documentUuid` via `fromUuid()` and reads `doc.compendium.collection` (packId) /
+       `doc.id` (actorId) off the result — both field names independently verified live against
+       `foundryvtt.com/api` this session (new §0 rows), not assumed from the `game.packs.get()`
+       convention alone. Defensive: a plain-text row has no `documentUuid` and resolves to nulls,
+       not a throw. **This means the live Thornwood table still has no real input for this path**
+       — it needs re-authoring as pack-linked before a live session can exercise it end to end.
+       Flagged, not fixed this session (needs the pod).
+  - **A real import cycle, found and fixed before it shipped, not worked around.**
+    `encounter.js`'s new `place_encounter` needed `proposals.js` (to consume a proposal on
+    success); `proposals.js`'s `sweepExpired()` needed `journal.js`'s `logCard` (to log the
+    `expired` label); `journal.js` already imports `executors/index.js` (for
+    `predictTouchedDocuments`), which imports `encounter.js` — closing
+    `encounter.js → proposals.js → journal.js → executors/index.js → encounter.js`. First attempt
+    at running the new tests threw `"roll_on_table" registered without a touches() declaration`
+    at import time — the cycle, not a logic bug. Fixed the same way this codebase already breaks
+    every other such edge (`journal.js`'s `notifyAgent`, `panel.js`'s
+    `registerPolicyRevokedSender`): `proposals.js` exports `registerCardLogger(fn)`, called from
+    `main.js`'s `ready` hook, instead of importing `journal.js` directly. `panel.js` similarly
+    can't import `execute` from `interceptor.js` directly (`interceptor.js` already imports
+    `Panel`) — `registerExecute(fn)`, same pattern, also wired from `main.js`.
+  - **`journal.js`'s `created[]` undo layer, specified since 2026-08-10 but never actually built,
+    implemented this session** — `place_encounter`'s imported world Actor is exactly the case
+    §4.5 added `created[]` for ("a snapshot cannot cover a document that does not exist yet"), and
+    it was the first real executor to need it. `commit(tx, executorReturn)` now also stores
+    `executorReturn.created`; `undoLast()` deletes those docs (reverse order, before restoring
+    snapshots) via a new `deleteCreated()` that skips the delete if
+    `doc.getDependentTokens({concreteOnly: true})` finds anything — the dedupe-reuse case (§4.5
+    limit 3): undoing one encounter must not delete an Actor a *different*, still-standing
+    encounter is now using. Extends the existing signatures rather than replacing them with the
+    spec's own illustrative `commit(tx, result, created)`/`restore(tx)` snippet verbatim — that
+    snippet predates the idempotent Layer-A duplicate-history guard already in this file's
+    `commit()`, and changing `beginTransaction`'s/`undoLast`'s tested call shape wasn't needed to
+    get `created[]` working.
+  - **Placed tokens go through Layer A (`result.placeables`), not `created[]`, despite the spec's
+    own §5.2 worked example putting them in `created[]` too.** Layer A (`storeHistory`/
+    `undoHistory`) already exists and is idempotent-guarded specifically for this; duplicating
+    token UUIDs into `created[]` as well would double-cover them across two undo layers with no
+    correctness benefit. Only the imported Actor (a genuine non-placeable create) goes in
+    `created[]`. Recorded as a deliberate deviation from the illustrative code, not a spec change.
+  - **`test-m1.js` deleted, per the 2026-07-12/2026-08-10 standing decision** ("delete test-m1.js
+    in M7") and 07-card.md's own Traps section. This removed the *only* executor anywhere in the
+    codebase that mutated a pre-existing document — every real v1 tool is either read-only
+    (`list_roll_tables`, `get_compendium_actor`) or create-only (`roll_on_table`'s draw,
+    `place_encounter`'s import+place); v1's tool surface genuinely never calls `journal.js`'s
+    snapshot-restore (`doc.update(...)`) branch. That branch isn't dead — Midi-QOL actions (v2)
+    will need it — but no *test* exercises it anymore either. Rewrote the three tests that relied
+    on `test.actor.rename` (`tests/interceptor.test.js`, `tests/panel.test.js`,
+    `tests/socket.test.js`) to use real v1 actions instead (`roll_on_table`/`get_compendium_actor`
+    for the generic auto-mode cases, two real `place_encounter` calls for the undo-N test) rather
+    than inventing a new synthetic executor to keep the old assertion shape. The snapshot-restore
+    branch itself is untested by anything now — flagged here rather than silently accepted.
+  - **`propose_encounter`'s wire round trip: QUEUED, not EXECUTED, is success.** No executor is
+    registered for `propose_encounter` (by design — `DEFAULT_POLICY`'s `propose` mode routes it to
+    `Panel.queue()` before `EXECUTORS` is ever consulted, confirmed in the M6 entry above), so if a
+    subsystem's mode were ever flipped to `auto`, this action would REJECT with `UNKNOWN_ACTION`,
+    not execute. `stageRunner.js`'s new `sceneDomainTools()` treats exactly `QUEUED` as success and
+    everything else — `REJECTED`, or that hypothetical `UNKNOWN_ACTION` — as an error reported back
+    to the model, per `20_resolve/CONTEXT.md`'s own rule: a tool surface that can't do the moment's
+    job escalates, it doesn't get quietly worked around.
+  - **Card-log context (trigger text, `foundry_state`, latency) is captured once, at proposal
+    creation, and frozen into the proposal's stored record** — not reconstructed later at
+    accept/edit/reroll/skip time, when the GM's own think-time would corrupt the "GM prompt → card
+    on screen" latency measurement 07-card.md's Done-when actually asks for.
+    `panel.js`'s `Panel.queue()` captures `Date.now() - lastTrigger.ts` and `captureFoundryState()`
+    (a new small helper: `scene`/`combat`/`selected` off `canvas`/`game`, same shape
+    `log-entry.schema.json`'s `foundry_state` already declares) the moment a `propose_encounter`
+    intent arrives, and every terminal `gm_action` write reuses that frozen context.
+  - **`model` stays `null` in every card-log entry this session writes, a known, pre-existing gap
+    left open rather than expanded.** `contracts/envelope.schema.json`'s `INTENT` payload has no
+    `model` field, so the module has no way to learn which model produced a proposal without
+    another schema change. Every *other* `logCard()` call site in the codebase (`socket.js`'s
+    generic per-intent write) already has this exact gap; not fixing it here keeps this session's
+    contracts diff to the one change that was actually load-bearing (`TRIGGER`).
+  - **`Edit` places on confirm, not on a separate later click.** §6's label table has one row,
+    "Edit, then use," not two — an edited card the GM never placed isn't the positive-plus-quality
+    signal `gm_edit_diff` is supposed to represent. `startEdit()`/`cancelEdit()` just toggle which
+    card shows a textarea (UI-only, unlogged); `confirmEdit(proposalId, editedText)` is the one
+    action that computes the diff, logs `gm_action: "edit"`, and calls `place_encounter` — same
+    single combined step, not a two-button flow the mockup's four buttons don't have room for
+    anyway.
+  - **`markOpened()` fires on render, not on click.** The panel is docked and GM-only (§4.7) — a
+    card actually rendering into `_prepareContext()`'s output is the closest v1 proxy for "the GM
+    saw this," which is exactly what `opened` needs to mean to keep `skip` (opened, refused)
+    distinct from `expired` (never seen) at §5.7. Every explicit action (accept/edit/reroll/skip)
+    also calls `markOpened()` defensively, but by the time any of them fire, a render has already
+    happened.
+  - **Reroll re-sends the GM's original trigger text, verbatim**, via the same `sendTrigger()` path
+    the panel's own input uses — not a new "re-run" mechanism. Simplest thing that satisfies
+    07-card.md's "re-runs the agent," and means Reroll gets exercised by the exact same live path
+    (`TRIGGER` → `runEncounterFlow`) a fresh GM prompt does, nothing bespoke to separately verify.
+  - **`gm_edit_diff` is a plain `- original\n+ edited` string, not a real diff algorithm.** Beats +
+    hook together are a handful of short lines, not code; a diff library would be solving a
+    problem this doesn't have. `null` when the GM didn't actually change anything.
+  - **Console API gained `Proposals: { get, getEntry }`** (`main.js`), same "manual/console-driven
+    testing" role `EventBus`'s console exposure already plays, for whenever a live session needs to
+    inspect a queued proposal by hand.
+  - **What a live pod session still needs to confirm, none of it exercised this session:**
+    the card actually renders as `ApplicationV2`/Handlebars (same class of risk M3's first session
+    got wrong five different ways — `_prepareContext`'s new `cards`/`queued`/`anyQueued` shape and
+    `card-encounter.hbs`'s `{{> card-encounter}}` partial registration via `loadTemplates()` are
+    unexercised by anything under vitest); a real GM trigger actually reaches
+    `gm-delegate-agent` and comes back as a rendered card; Accept & Place creates real tokens and
+    `undoLast(1)` removes them; the provenance line matches a real tool-call trace; median
+    GM-prompt-to-card latency, the §9 kill criterion; and the Thornwood table re-authored as
+    pack-linked rows so `packId`/`actorId` resolve to something real instead of nulls. **Next
+    session, first move:** get sign-off to start the pod, reinstall at whatever version this gets
+    bumped to when committed, then work `docs/milestones/07-card.md`'s Done-when list start to
+    finish — this entry's own list above is that Done-when list's live-verification half.
 
 ## Known forward references in the spec
 

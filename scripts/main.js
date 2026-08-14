@@ -13,14 +13,27 @@ import {
 import { registerPolicySettings, getPolicy, modeFor } from "./policy.js";
 import { handleIntent, execute } from "./interceptor.js";
 import { EXECUTORS } from "./executors/index.js";
-import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant, voiceNpc, isNpcActor } from "./panel.js";
+import { GMDelegatePanel, Panel, shouldShowPanel, takeCombatant, voiceNpc, isNpcActor, registerExecute } from "./panel.js";
 import { registerHooks as registerEventBusHooks, getBuffer, registerEventSender, extractRoll } from "./eventbus.js";
 import { registerSocketSettings, connect as connectSocket } from "./socket.js";
+import {
+  registerCardLogger,
+  sweepExpired as sweepExpiredProposals,
+  get as getProposal,
+  getEntry as getProposalEntry,
+} from "./proposals.js";
 
 Hooks.once("init", () => {
   registerJournalSettings();
   registerPolicySettings();
   registerSocketSettings();
+
+  // The card partial (templates/card-encounter.hbs, M7). loadTemplates()
+  // registers a loaded template as a Handlebars partial keyed by the given
+  // name (verified live against foundryvtt.com/api, spec §0) — panel.hbs's
+  // {{> card-encounter}} depends on this having already run by the time the
+  // panel first renders, so it happens at init, before ready.
+  foundry.applications.handlebars.loadTemplates({ "card-encounter": "modules/gm-delegate/templates/card-encounter.hbs" });
 
   // "I'll take this one" (§4.7, right-click a combatant in the tracker).
   // Live-verified 2026-08-12 (RunPod pod, v14.365, dnd5e): v14's
@@ -58,6 +71,21 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   connectSocket(); // spec §5.6, corrected: the module dials out, the agent listens.
 
+  // proposals.js can't import journal.js directly (would close an import
+  // cycle through executors/index.js -> encounter.js -> proposals.js — see
+  // proposals.js's own header comment). Registered here instead, same
+  // pattern as every other init-time callback in this file.
+  registerCardLogger(logCard);
+  // §5.7: expiry is a labelling event, not just cleanup. 60s granularity is
+  // plenty against a 15-minute TTL.
+  setInterval(() => sweepExpiredProposals(), 60_000);
+
+  // panel.js's Accept/Edit buttons call place_encounter locally (not routed
+  // through handleIntent()/mode — see panel.js's acceptProposal comment).
+  // Registered here rather than imported in panel.js: interceptor.js already
+  // imports Panel, so the reverse import would close a cycle.
+  registerExecute(execute);
+
   // Console access for M1/M2/M3 testing; the socket (M5) is the real caller
   // of handleIntent now, this stays for manual/console-driven testing.
   game.modules.get("gm-delegate").api = {
@@ -75,6 +103,7 @@ Hooks.once("ready", () => {
     EXECUTORS,
     Panel,
     EventBus: { getBuffer, registerEventSender, extractRoll },
+    Proposals: { get: getProposal, getEntry: getProposalEntry },
   };
 
   registerEventBusHooks();

@@ -17,7 +17,14 @@
 // the existing bringToTop-only-removal row in §0. Flagged there as the basis.
 
 import { getPolicy, modeFor, setSubsystemDecide, setSceneOverride, setActorOverride, nextMode } from "./policy.js";
-import { note, undoLast } from "./journal.js";
+import { note, undoLast, logCard } from "./journal.js";
+import {
+  put as putProposal,
+  get as getProposal,
+  getEntry as getProposalEntry,
+  markOpened as markProposalOpened,
+  remove as removeProposal,
+} from "./proposals.js";
 
 const MODULE_ID = "gm-delegate";
 
@@ -34,17 +41,214 @@ const queued = [];
 // re-render without the ApplicationV2 class knowing about every call site.
 let activeInstance = null;
 
+// proposalId of the card currently showing its edit textarea, or null. UI
+// state, same class as GMDelegatePanel#collapsed — not persisted, not
+// routed through journal/policy.
+let editing = null;
+
+// interceptor.js's execute() is registered here rather than imported
+// directly: interceptor.js already imports Panel (for queue()), so a
+// static `import { execute } from "./interceptor.js"` here would close that
+// into a cycle. Same "callback set at init" shape as
+// registerPolicyRevokedSender/registerTriggerSender below. Registered from
+// main.js's ready hook.
+let executeFn = null;
+
+export function registerExecute(fn) {
+  executeFn = fn;
+}
+
+async function runExecute(intent) {
+  if (!executeFn) {
+    console.error(`${MODULE_ID} | no execute() registered yet`, intent);
+    return { status: "REJECTED", id: intent.id, reason: "NO_EXECUTOR_REGISTERED" };
+  }
+  return executeFn(intent);
+}
+
+// M7's "GM prompt -> card on screen" latency (§9's own phrasing, restated in
+// 07-card.md's Done-when) is measured from the moment the trigger left this
+// client, not from GM think-time on the card afterward — captured once here,
+// frozen into the proposal's cardLogContext at queue() time, and carried
+// unchanged into whichever gm_action eventually logs it.
+let lastTrigger = null;
+
+// §6's foundry_state column. Captured at proposal-creation time — "what was
+// true when the GM prompt was answered" is the meaningful instant, not
+// whatever is true later when the GM finally clicks a button.
+function captureFoundryState() {
+  return {
+    scene: canvas?.scene?.id ?? null,
+    combat: !!game.combat?.started,
+    selected: canvas?.tokens?.controlled?.[0]?.actor?.id ?? null,
+  };
+}
+
+function buildCardText(proposal) {
+  return `${proposal.beats.map((b) => `• ${b}`).join("\n")}\nHook: ${proposal.hook}`;
+}
+
+// The card's view model (§5.4's mockup): the provenance line is the visible
+// proof "Foundry decided, not the model" (07-card.md — "not decoration").
+function buildCardViewModel(proposal, isEditing) {
+  const totalQty = proposal.creatures.reduce((n, c) => n + c.quantity, 0);
+  const creatureNames = proposal.creatures.map((c) => c.name).join(", ");
+  return {
+    proposalId: proposal.id,
+    provenanceLine: `${proposal.provenance?.tableId ?? "?"} · roll ${proposal.provenance?.roll ?? "?"} → ${proposal.provenance?.result ?? "?"}`,
+    quantityLine: proposal.provenance?.quantityDice
+      ? `Foundry rolled ${proposal.provenance.quantityDice} → ${totalQty} ${creatureNames}`
+      : null,
+    creaturesLine: proposal.creatures
+      .map((c) => `${c.name.toUpperCase()} ×${c.quantity}${c.descriptor ? ` — ${c.descriptor}` : ""}`)
+      .join(", "),
+    beats: proposal.beats,
+    hook: proposal.hook,
+    cardText: buildCardText(proposal),
+    editing: isEditing,
+  };
+}
+
+// The diff between what the model wrote and what the GM kept (§5.4's "best
+// training signal in the system"). Beats/hook are short fragments, not code
+// — a full diff library is more than this needs; null means unedited.
+function computeEditDiff(original, finalText) {
+  return original === finalText ? null : `- ${original}\n+ ${finalText}`;
+}
+
+async function logProposalOutcome(entry, gm_action, { card_text, gm_edit_diff = null } = {}) {
+  const { proposal, cardLogContext } = entry;
+  return logCard({
+    intent_id: proposal.intent_id ?? null,
+    proposal_id: proposal.id,
+    subsystem: proposal.subsystem,
+    mode: "propose",
+    trigger: cardLogContext.trigger ?? null,
+    foundry_state: cardLogContext.foundry_state ?? { scene: null, combat: false, selected: null },
+    provenance: proposal.provenance ?? null,
+    model: cardLogContext.model ?? null,
+    latency_ms: cardLogContext.latency_ms ?? { total: 0 },
+    card_text: card_text ?? buildCardText(proposal),
+    gm_action,
+    gm_edit_diff,
+  });
+}
+
+function dequeue(proposalId) {
+  const idx = queued.findIndex((q) => q.proposalId === proposalId);
+  if (idx !== -1) queued.splice(idx, 1);
+  if (editing === proposalId) editing = null;
+}
+
 export const Panel = {
   // Called by interceptor.js for `propose` mode (§4.4). Signature and the
   // `queued` array are the M2 stub's public shape — interceptor.js's call
-  // site does not change.
+  // site does not change. propose_encounter intents additionally get a real
+  // proposal record (§5.7) so Accept/Edit/Reroll/Skip have something to act
+  // on; every other propose-mode action (no subsystem builds one yet) keeps
+  // the original raw-intent-dump behavior.
   queue(intent) {
-    queued.push(intent);
+    if (intent.action === "propose_encounter") {
+      const record = putProposal(
+        {
+          subsystem: intent.subsystem,
+          creatures: intent.args.creatures,
+          beats: intent.args.beats,
+          hook: intent.args.hook,
+          provenance: intent.args.provenance,
+          intent_id: intent.id,
+        },
+        {
+          trigger: lastTrigger ? { type: "gm_command", text: lastTrigger.text } : null,
+          foundry_state: captureFoundryState(),
+          model: null, // TODO: not on the wire yet — INTENT's schema has no model field (§5.6)
+          latency_ms: { total: lastTrigger ? Date.now() - lastTrigger.ts : 0 },
+        }
+      );
+      queued.push({ ...intent, proposalId: record.id });
+    } else {
+      queued.push(intent);
+    }
     console.log(`${MODULE_ID} | Panel.queue |`, intent);
     activeInstance?.render();
   },
   queued,
 };
+
+// Accept & Place (§5.4). place_encounter is triggered locally here, not
+// routed through handleIntent()/mode — the GM's click IS the authorization;
+// re-checking policy mode at accept time isn't in scope (the mode that
+// mattered already ran when the card was proposed). See 07-card.md's Traps:
+// "enforce in the Interceptor, not the prompt" — place_encounter's own
+// executor (encounter.js) is what actually refuses a missing/expired/
+// already-placed proposalId; this function is just the wire from the button.
+export async function acceptProposal(proposalId) {
+  const entry = getProposalEntry(proposalId);
+  if (!entry) return null; // gone (expired, already actioned) between render and click
+  markProposalOpened(proposalId);
+  const outcome = await runExecute({ id: proposalId, action: "place_encounter", args: { proposalId } });
+  await logProposalOutcome(entry, "accept");
+  dequeue(proposalId);
+  activeInstance?.render();
+  return outcome;
+}
+
+export function startEdit(proposalId) {
+  if (!getProposalEntry(proposalId)) return;
+  markProposalOpened(proposalId);
+  editing = proposalId;
+  activeInstance?.render();
+}
+
+export function cancelEdit() {
+  editing = null;
+  activeInstance?.render();
+}
+
+// "Edit, then use" (§6's label table) is one combined action here, not two:
+// the edited beats/hook text is what gets logged as card_text (the
+// mechanical creatures/quantity/provenance are Foundry's, not the GM's to
+// edit), and placement follows immediately — an edited card the GM never
+// placed would be a positive label for a card that never actually got used,
+// which is not what "edit" is supposed to mean.
+export async function confirmEdit(proposalId, editedText) {
+  const entry = getProposalEntry(proposalId);
+  if (!entry) return null;
+  const original = buildCardText(entry.proposal);
+  const diff = computeEditDiff(original, editedText);
+  markProposalOpened(proposalId);
+  const outcome = await runExecute({ id: proposalId, action: "place_encounter", args: { proposalId } });
+  await logProposalOutcome(entry, "edit", { card_text: editedText, gm_edit_diff: diff });
+  dequeue(proposalId);
+  activeInstance?.render();
+  return outcome;
+}
+
+// Reroll (§5.4): logs a weak negative on the discarded card, then re-sends
+// the SAME original trigger text so the agent runs again — "re-runs the
+// agent," per 07-card.md's Done-when, over the one live trigger path this
+// project has (§4.7).
+export async function rerollProposal(proposalId) {
+  const entry = getProposalEntry(proposalId);
+  if (!entry) return;
+  markProposalOpened(proposalId);
+  await logProposalOutcome(entry, "reroll");
+  removeProposal(proposalId);
+  dequeue(proposalId);
+  activeInstance?.render();
+  const text = entry.cardLogContext.trigger?.text;
+  if (text) sendTrigger(text);
+}
+
+export async function skipProposal(proposalId) {
+  const entry = getProposalEntry(proposalId);
+  if (!entry) return;
+  markProposalOpened(proposalId);
+  await logProposalOutcome(entry, "skip");
+  removeProposal(proposalId);
+  dequeue(proposalId);
+  activeInstance?.render();
+}
 
 export function shouldShowPanel() {
   return game.user?.isGM === true;
@@ -143,21 +347,29 @@ function sendPolicyRevoked() {
   return payload;
 }
 
-// Stub for the v1 trigger (§4.7's "the only trigger v1 has"). What ships
-// over the socket at M5 is deliberately NOT decided here: envelope.schema.json
-// defines INTENT as agent -> module only (§5.6), so wrapping raw GM text as
-// an outbound "INTENT" would contradict the schema, and contracts/* changes
-// get proposed, not applied (AGENTS.md). Logs in the §6 `trigger` shape
-// instead (log-entry.schema.json: { type: "gm_command", text }), which is
-// schema-valid today and is what M5 will need to carry either way.
+// The v1 trigger (§4.7's "the only trigger v1 has"). Wire format resolved
+// M7 (STATUS.md): a dedicated TRIGGER envelope type (module -> agent,
+// { text }, fire-and-forget) rather than overloading EVENT, whose `event`
+// field is a closed enum tied to eventbus.js's HOOKS table — a GM-authored
+// command isn't hook telemetry. socket.js registers the real sender here at
+// connect time, same "callback set at init" shape as
+// registerPolicyRevokedSender just above.
 //
 // Fire-and-forget note() write, same pattern as interceptor.js's reject() —
 // the input must clear immediately, not wait on a journal write. Live-Foundry
 // testing (2026-08-12) found this was only ever console.log'd, never actually
 // written to the journal, despite STATUS.md recording it as done.
+let triggerSender = null;
+
+export function registerTriggerSender(fn) {
+  triggerSender = fn;
+}
+
 export function sendTrigger(text) {
   const trigger = { type: "gm_command", text };
-  console.log(`${MODULE_ID} | trigger (stub, no wire format yet) |`, trigger);
+  lastTrigger = { text, ts: Date.now() };
+  if (triggerSender) triggerSender({ text });
+  else console.log(`${MODULE_ID} | TRIGGER (no agent connected yet) |`, trigger);
   note(trigger);
   return trigger;
 }
@@ -193,6 +405,12 @@ export const GMDelegatePanel = AppV2Api
           ask: GMDelegatePanel._onAsk,
           undo: GMDelegatePanel._onUndo,
           toggleCollapse: GMDelegatePanel._onToggleCollapse,
+          cardAccept: GMDelegatePanel._onCardAccept,
+          cardEditStart: GMDelegatePanel._onCardEditStart,
+          cardEditCancel: GMDelegatePanel._onCardEditCancel,
+          cardEditConfirm: GMDelegatePanel._onCardEditConfirm,
+          cardReroll: GMDelegatePanel._onCardReroll,
+          cardSkip: GMDelegatePanel._onCardSkip,
         },
       };
 
@@ -207,6 +425,22 @@ export const GMDelegatePanel = AppV2Api
 
       async _prepareContext(_options) {
         const policy = getPolicy();
+        const cards = [];
+        const otherQueued = [];
+        for (const q of queued) {
+          if (q.action !== "propose_encounter" || !q.proposalId) {
+            otherQueued.push(JSON.stringify(q, null, 2));
+            continue;
+          }
+          const proposal = getProposal(q.proposalId);
+          if (!proposal) continue; // expired between queue() and this render; sweepExpired() logs it
+          // The panel is docked and GM-only (§4.7) — a render is the closest
+          // proxy v1 has to "the GM saw this," which is exactly what
+          // distinguishes skip (opened, then refused) from expired (never
+          // seen) at §5.7.
+          markProposalOpened(q.proposalId);
+          cards.push(buildCardViewModel(proposal, editing === q.proposalId));
+        }
         return {
           chips: CHIPS.map(({ key, label }) => {
             // Display the enforced mode (modeFor), not the raw stored
@@ -218,7 +452,9 @@ export const GMDelegatePanel = AppV2Api
             return { key, label, mode, active: mode !== "off" };
           }),
           reclaimed: policy.sceneOverride === "all_off",
-          queued: queued.map((intent) => JSON.stringify(intent, null, 2)),
+          cards,
+          queued: otherQueued,
+          anyQueued: cards.length > 0 || otherQueued.length > 0,
           collapsed: this.collapsed,
         };
       }
@@ -269,6 +505,32 @@ export const GMDelegatePanel = AppV2Api
       static _onToggleCollapse() {
         this.collapsed = !this.collapsed;
         this.render();
+      }
+
+      static async _onCardAccept(_event, target) {
+        await acceptProposal(target.dataset.proposalId);
+      }
+
+      static _onCardEditStart(_event, target) {
+        startEdit(target.dataset.proposalId);
+      }
+
+      static _onCardEditCancel() {
+        cancelEdit();
+      }
+
+      static async _onCardEditConfirm(_event, target) {
+        const proposalId = target.dataset.proposalId;
+        const textarea = this.element.querySelector(`textarea[data-proposal-id="${proposalId}"]`);
+        await confirmEdit(proposalId, textarea?.value ?? "");
+      }
+
+      static async _onCardReroll(_event, target) {
+        await rerollProposal(target.dataset.proposalId);
+      }
+
+      static async _onCardSkip(_event, target) {
+        await skipProposal(target.dataset.proposalId);
       }
     }
   : GMDelegatePanelUnavailable;

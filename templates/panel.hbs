@@ -1,9 +1,12 @@
-{{! M3 frame + chips only. The card renderer is M7 — queued cards are dumped
-    as JSON here on purpose (docs/milestones/03-panel.md: "ugly is fine, ugly
-    is honest"). ApplicationV2 parts must render a single root element, hence
-    the outer wrapper — ApplicationV2 requires an HTML file to have a single
-    root element (verified live, 2026-08-12: three sibling .row divs threw
-    "Template part must render a single HTML element"). }}
+{{! ApplicationV2 parts must render a single root element, hence the outer
+    wrapper (verified live, 2026-08-12: three sibling .row divs threw
+    "Template part must render a single HTML element").
+
+    Encounter proposals render as real cards (templates/card-encounter.hbs,
+    M7) via {{> card-encounter}}. Anything else in `queued` (no other
+    subsystem builds a card yet) still dumps as JSON — "ugly is fine, ugly is
+    honest" (docs/milestones/03-panel.md) — so a future propose-mode action
+    is visible rather than silently dropped. }}
 <div class="gm-delegate-panel-inner {{#if collapsed}}collapsed{{/if}}">
   <div class="row toggle">
     <button type="button" class="collapse-toggle" data-action="toggleCollapse">{{#if collapsed}}&#9656;{{else}}&#9662;{{/if}} GM Delegate</button>
@@ -26,11 +29,15 @@
 
   <div class="row queue">
     <div class="queued-cards">
+      {{#each cards}}
+        {{> card-encounter}}
+      {{/each}}
       {{#each queued}}
         <pre class="card-stub">{{this}}</pre>
-      {{else}}
-        <span class="empty">no queued proposals</span>
       {{/each}}
+      {{#unless anyQueued}}
+        <span class="empty">no queued proposals</span>
+      {{/unless}}
     </div>
     <div class="undo-controls">
       <input type="number" name="undoN" value="1" min="1" />

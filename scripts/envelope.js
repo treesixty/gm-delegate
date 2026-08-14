@@ -18,7 +18,7 @@
 
 import { ulid } from "./ulid.js";
 
-export const ENVELOPE_TYPES = ["HELLO", "INTENT", "RESULT", "EVENT", "POLICY_REVOKED", "UNDONE"];
+export const ENVELOPE_TYPES = ["HELLO", "INTENT", "RESULT", "EVENT", "POLICY_REVOKED", "UNDONE", "TRIGGER"];
 
 const ID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 

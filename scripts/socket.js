@@ -18,7 +18,7 @@
 
 import { handleIntent } from "./interceptor.js";
 import { registerEventSender } from "./eventbus.js";
-import { registerPolicyRevokedSender } from "./panel.js";
+import { registerPolicyRevokedSender, registerTriggerSender } from "./panel.js";
 import { logCard } from "./journal.js";
 import { buildEnvelope, buildReply, validateEnvelope } from "./envelope.js";
 
@@ -48,6 +48,7 @@ export function connect(wsUrl = game.settings.get(MODULE_ID, URL_KEY)) {
   url = wsUrl;
   manuallyDisconnected = false;
   registerPolicyRevokedSender(sendPolicyRevoked);
+  registerTriggerSender(sendTriggerFrame);
   open();
 }
 
@@ -101,6 +102,15 @@ function sendEvent(frame) {
 // socket state.
 function sendPolicyRevoked(payload) {
   send(buildEnvelope("POLICY_REVOKED", payload));
+}
+
+// Registered with panel.js's registerTriggerSender (§4.7's v1 trigger, M7).
+// Fire-and-forget, same as EVENT/POLICY_REVOKED — send() already no-ops when
+// the socket isn't open, and there is no reply to wait for in v1 (the
+// eventual card arrives later as its own agent-initiated propose_encounter
+// INTENT).
+function sendTriggerFrame(payload) {
+  send(buildEnvelope("TRIGGER", payload));
 }
 
 async function onMessage(raw) {

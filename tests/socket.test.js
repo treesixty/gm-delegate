@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { resetFoundry } from "./setup.js";
 import { registerJournalSettings, getCardLog } from "../scripts/journal.js";
 import { registerPolicySettings } from "../scripts/policy.js";
-import { registerPolicyRevokedSender, reclaim } from "../scripts/panel.js";
+import { registerPolicyRevokedSender, registerTriggerSender, reclaim, sendTrigger } from "../scripts/panel.js";
 import { _resetForTests as resetEventBus } from "../scripts/eventbus.js";
 import { connect, disconnect } from "../scripts/socket.js";
 
@@ -56,6 +56,7 @@ beforeEach(() => {
   registerJournalSettings();
   registerPolicySettings();
   registerPolicyRevokedSender(null);
+  registerTriggerSender(null);
   disconnect(); // stop any timer/socket left running by the previous test
   FakeWebSocket.instances.length = 0;
   globalThis.WebSocket = FakeWebSocket;
@@ -86,6 +87,9 @@ describe("socket.js — connect/HELLO/reconnect (§5.6)", () => {
 });
 
 describe("socket.js — INTENT -> RESULT (§5.6 Done when)", () => {
+  // get_compendium_actor: a real, still-existing auto-mode action other than
+  // roll_on_table (M6/M7's own real tool surface — test-m1.js's synthetic
+  // test.actor.rename is gone, deleted M7 per STATUS.md).
   const intentFrame = (over = {}) => ({
     v: 1,
     type: "INTENT",
@@ -94,26 +98,28 @@ describe("socket.js — INTENT -> RESULT (§5.6 Done when)", () => {
     payload: {
       subsystem: "random_encounters",
       stage: "prompt", // DEFAULT_POLICY: random_encounters.prompt = auto
-      action: "test.actor.rename",
-      args: { actorUuid: "Actor.abc", name: "Renamed" },
+      action: "get_compendium_actor",
+      args: { packId: "dnd5e.monsters", actorId: "abc123" },
       ...over,
     },
   });
 
   it("round-trips a hardcoded intent end to end and echoes the INTENT's id on the RESULT", async () => {
-    fromUuid.mockResolvedValue({ toObject: () => ({ name: "old" }), update: vi.fn() });
+    fromUuid.mockResolvedValue({
+      draw: vi.fn(async () => ({ roll: { formula: "1d20", total: 5 }, results: [{ name: "Wolf Pack" }] })),
+    });
     connect("ws://127.0.0.1:8765");
     latest()._open();
     latest().sent.length = 0; // clear the HELLO
 
-    latest()._message(intentFrame());
+    latest()._message(intentFrame({ action: "roll_on_table", args: { tableId: "RollTable.abc" } }));
     await new Promise((r) => setTimeout(r, 0));
 
     expect(latest().sent).toHaveLength(1);
     const reply = latest().sent[0];
     expect(reply).toMatchObject({ v: 1, type: "RESULT", id: "01J9ZQK8Y7M3N4P5R6S7T8V9WX" });
     expect(reply.payload.status).toBe("EXECUTED");
-    expect(reply.payload.result).toMatchObject({ renamed: "Actor.abc", to: "Renamed" });
+    expect(reply.payload.result.result).toMatchObject({ drawn: ["Wolf Pack"], tableTotal: 5 });
 
     const card = getCardLog().at(-1);
     expect(card).toMatchObject({
@@ -165,12 +171,12 @@ describe("socket.js — INTENT -> RESULT (§5.6 Done when)", () => {
   });
 
   it("logs null provenance for actions other than roll_on_table", async () => {
-    fromUuid.mockResolvedValue({ toObject: () => ({ name: "old" }), update: vi.fn() });
+    game.packs.get.mockReturnValue({ getDocument: vi.fn(async () => ({ toObject: () => ({ name: "Wolf" }) })) });
     connect("ws://127.0.0.1:8765");
     latest()._open();
     latest().sent.length = 0;
 
-    latest()._message(intentFrame()); // test.actor.rename, from the shared fixture
+    latest()._message(intentFrame()); // get_compendium_actor, from the shared fixture
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getCardLog().at(-1).provenance).toBeNull();
@@ -226,5 +232,23 @@ describe("socket.js — POLICY_REVOKED (§5.6, RECLAIM)", () => {
   it("does not throw if RECLAIM fires with no agent connected", async () => {
     // beforeEach already reset the sender to null and never called connect().
     await expect(reclaim()).resolves.toBeTruthy();
+  });
+});
+
+describe("socket.js — TRIGGER (§4.7 GM command, M7)", () => {
+  it("registers itself as panel.js's TRIGGER sender at connect(), and the trigger reaches the wire", () => {
+    connect("ws://127.0.0.1:8765");
+    latest()._open();
+    latest().sent.length = 0;
+
+    sendTrigger("three days through the Thornwood");
+
+    const trigger = latest().sent.find((f) => f.type === "TRIGGER");
+    expect(trigger).toMatchObject({ type: "TRIGGER", payload: { text: "three days through the Thornwood" } });
+  });
+
+  it("does not throw if the trigger fires with no agent connected", () => {
+    // beforeEach already reset the sender to null and never called connect().
+    expect(() => sendTrigger("three days through the Thornwood")).not.toThrow();
   });
 });

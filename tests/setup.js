@@ -39,6 +39,10 @@ globalThis.game = {
 
 // Layer history is an array so §4.5's idempotency guard can be exercised:
 // push a fake "create" entry and commit() should decline to record a second.
+// placeTokens (M7, §5.2's place_encounter) defaults to handing back each
+// input doc with a synthetic id/uuid and a working toObject() — real enough
+// for encounter.test.js's dedupe/undo-shape assertions without pretending to
+// be Foundry's actual placement algorithm (cursor position, rotation, etc).
 const layer = () => ({
   history: [],
   storeHistory: vi.fn(function (type, data) {
@@ -46,7 +50,14 @@ const layer = () => ({
   }),
   undoHistory: vi.fn(async function () {
     return this.history.pop();
-  })
+  }),
+  placeTokens: vi.fn(async (data) =>
+    [...data].map((d, i) => {
+      const doc = { ...d, _id: `placed${i}`, id: `placed${i}`, uuid: `Token.placed${i}` };
+      doc.toObject = () => ({ ...doc });
+      return doc;
+    })
+  ),
 });
 
 globalThis.canvas = {

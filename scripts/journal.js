@@ -132,7 +132,10 @@ export async function beginTransaction(intent) {
 
 // result.placeables = { layer, docs } when the executor created placeables.
 // Those get Foundry's native layer history (Layer A); everything else relies
-// on the snapshot (Layer B).
+// on the snapshot (Layer B). result.created = [uuid, ...] (§4.5, M7) covers
+// the third case: a NON-placeable create (e.g. place_encounter's imported
+// world Actor) has no pre-existing UUID for beginTransaction() to have
+// snapshotted, so its inverse is "delete it," tracked here instead.
 export async function commit(tx, result) {
   let placeables = null;
   if (result?.placeables) {
@@ -159,6 +162,7 @@ export async function commit(tx, result) {
     intent: tx.intent,
     snapshot: tx.snapshot,
     placeables,
+    created: result?.created ?? [],
     chatMessageIds: tx.chatMessageIds,
     status: "EXECUTED",
     reverted: false,
@@ -192,6 +196,26 @@ async function restore(snapshot) {
   }
 }
 
+// The inverse of created[] (§4.5 limit 3): delete what this transaction
+// created, in reverse order, UNLESS something else now depends on it — the
+// dedupe case, where a later encounter reused an Actor this transaction
+// imported. A blind delete would break the tokens still standing from that
+// later encounter; leaving a stray statblock behind is the cheap failure,
+// deleting one still in play is not. `getDependentTokens` is Actor-specific,
+// so this checks for it rather than assuming every created doc has it —
+// generic across whatever a future executor's created[] might hold.
+async function deleteCreated(created = []) {
+  for (const uuid of [...created].reverse()) {
+    const doc = await fromUuid(uuid);
+    if (!doc) continue;
+    if (typeof doc.getDependentTokens === "function") {
+      const dependents = doc.getDependentTokens({ concreteOnly: true });
+      if (dependents?.length) continue;
+    }
+    await doc.delete();
+  }
+}
+
 // Undo is a stack, not a single step — you will not notice a bad auto-action
 // for thirty seconds.
 export async function undoLast(n = 1) {
@@ -205,6 +229,10 @@ export async function undoLast(n = 1) {
     // layer's history stack. Manual canvas edits made since would be popped
     // instead — accepted v1 limitation, same class as §4.5 limit 3.
     if (e.placeables) await canvas[e.placeables.layer].undoHistory();
+    // Delete what was created THEN restore what was mutated (§4.5) — a
+    // restore can re-point at a doc that's about to be deleted, not the
+    // other way around.
+    await deleteCreated(e.created);
     await restore(e.snapshot);
     if (e.chatMessageIds?.length) await ChatMessage.deleteDocuments(e.chatMessageIds);
     e.reverted = true;

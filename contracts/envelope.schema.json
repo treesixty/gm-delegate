@@ -16,8 +16,8 @@
     },
     "type": {
       "type": "string",
-      "enum": ["HELLO", "INTENT", "RESULT", "EVENT", "POLICY_REVOKED", "UNDONE"],
-      "description": "Six types. If it is not in this enum it does not exist. Unknown type means log and drop, never throw."
+      "enum": ["HELLO", "INTENT", "RESULT", "EVENT", "POLICY_REVOKED", "UNDONE", "TRIGGER"],
+      "description": "Seven types. If it is not in this enum it does not exist. Unknown type means log and drop, never throw."
     },
     "id": {
       "type": "string",
@@ -67,6 +67,12 @@
       "properties": {
         "type": { "const": "UNDONE" },
         "payload": { "$ref": "#/$defs/undone" }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "TRIGGER" },
+        "payload": { "$ref": "#/$defs/trigger" }
       }
     }
   ],
@@ -171,6 +177,16 @@
           "items": { "type": "string" },
           "minItems": 1
         }
+      }
+    },
+
+    "trigger": {
+      "description": "module -> agent. The v1 GM-command trigger (§4.7's panel input). Added M7 (STATUS.md), its own type rather than an EVENT: a GM-authored command is not hook telemetry and should not be forced through EVENT's 'droppable, must match the HOOKS table' contract. No RESULT reply in v1 (fire-and-forget, same delivery as EVENT) — the eventual propose_encounter this kicks off arrives later as its own agent-initiated INTENT.",
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 }
       }
     },
 

@@ -117,6 +117,97 @@
   font-size: 11px;
 }
 
+/* The wandering-encounter card (§5.4, M7, templates/card-encounter.hbs). */
+#gm-delegate-panel .encounter-card {
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 0 0 6px;
+}
+
+#gm-delegate-panel .encounter-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+#gm-delegate-panel .encounter-card .gm-only {
+  opacity: 0.6;
+  font-weight: normal;
+  font-size: 11px;
+}
+
+/* Not decoration (07-card.md): the visible proof Foundry decided, the model
+   only reported. Distinct color so it reads as provenance, not narration. */
+#gm-delegate-panel .encounter-card .provenance {
+  color: #8fb0e0;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+#gm-delegate-panel .encounter-card .creatures {
+  font-weight: bold;
+  margin: 4px 0 2px;
+}
+
+#gm-delegate-panel .encounter-card .beats {
+  margin: 0 0 4px;
+  padding-left: 16px;
+}
+
+#gm-delegate-panel .encounter-card .beats li {
+  margin-bottom: 1px;
+}
+
+#gm-delegate-panel .encounter-card .hook {
+  font-style: italic;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+#gm-delegate-panel .encounter-card .card-edit {
+  width: 100%;
+  box-sizing: border-box;
+  background: #111;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  margin-bottom: 6px;
+  resize: vertical;
+}
+
+#gm-delegate-panel .encounter-card .card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+#gm-delegate-panel .encounter-card .card-actions button {
+  background: #333;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+#gm-delegate-panel .encounter-card .card-actions button[data-action="cardAccept"],
+#gm-delegate-panel .encounter-card .card-actions button[data-action="cardEditConfirm"] {
+  background: #2d5a2d;
+  border-color: #4a8f4a;
+  font-weight: bold;
+}
+
+#gm-delegate-panel .encounter-card .card-actions button[data-action="cardSkip"],
+#gm-delegate-panel .encounter-card .card-actions button[data-action="cardEditCancel"] {
+  opacity: 0.75;
+}
+
 #gm-delegate-panel .empty {
   opacity: 0.6;
   font-style: italic;

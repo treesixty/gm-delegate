@@ -21,6 +21,7 @@ export class Orchestrator {
   #pending = new Map(); // envelope id -> { resolve, reject, timer }
   #revoked = false;
   #events = [];
+  #onTrigger = null;
 
   attach(conn) {
     this.#conn = conn;
@@ -52,6 +53,15 @@ export class Orchestrator {
 
   getEvents() {
     return this.#events.slice();
+  }
+
+  // TRIGGER (§4.7's GM-command input, module -> agent, M7). This class stays
+  // wire plumbing only — it doesn't know how to run a stage — so the actual
+  // handler (index.js's runEncounterFlow) is registered here at startup,
+  // same "callback set at init" shape the module side uses throughout
+  // (journal.js's notifyAgent, panel.js's registerPolicyRevokedSender).
+  onTrigger(fn) {
+    this.#onTrigger = fn;
   }
 
   // Returns a Promise resolving to the RESULT payload ({status, result?,
@@ -100,6 +110,10 @@ export class Orchestrator {
         // Must not re-narrate undone material (§4.5). Nothing narrates yet
         // (M6+); logging is the whole obligation at this milestone.
         console.log("gm-delegate-agent | UNDONE", frame.payload.ids);
+        return;
+      case "TRIGGER":
+        if (this.#onTrigger) this.#onTrigger(frame.payload);
+        else console.error("gm-delegate-agent | TRIGGER received but no handler registered", frame.payload);
         return;
       default:
         // Only RESULT/EVENT/POLICY_REVOKED/UNDONE/HELLO flow module -> agent

@@ -1,15 +1,15 @@
 // index.js — entrypoint. `npm start` from gm-delegate-agent/.
 //
-// Also doubles as the manual driver for M5's Done-when checklist, the same
-// role test-m1.js plays for M1: no EncounterAgent exists yet (M6), so a
-// hardcoded intent typed at this process's stdin is what proves the
-// round trip. Type one of: rename <actorUuid>, reject, events, revoked.
+// Also doubles as a manual stdin driver for testing without a live Panel:
+// "reject" (hard-ban round trip), "events"/"revoked" (wire state), "resolve
+// [N]" (the real two-stage encounter flow, same code path a live TRIGGER
+// fires — see runEncounterFlow below).
 
 import { loadConfig } from "./config.js";
 import { Orchestrator } from "./orchestrator.js";
 import { startServer } from "./server.js";
 import { ModelClient } from "./modelClient.js";
-import { runStage, resolveDomainTools, resolveWorkspace } from "./stageRunner.js";
+import { runStage, resolveDomainTools, sceneDomainTools, resolveWorkspace } from "./stageRunner.js";
 
 const config = loadConfig();
 const orchestrator = new Orchestrator();
@@ -18,38 +18,77 @@ const workspace = resolveWorkspace(config.workspace);
 
 startServer(config.ws, orchestrator);
 console.log(`gm-delegate-agent | listening on ws://${config.ws.host}:${config.ws.port}`);
-console.log(
-  'gm-delegate-agent | stdin commands: "rename <actorUuid>", "reject", "events", "revoked", "resolve"'
-);
+console.log('gm-delegate-agent | stdin commands: "reject", "events", "revoked", "resolve [N]"');
 
-const RESOLVE_SCENARIO = [
-  "Linked catalog doc: _world/locations/thornwood-road.md",
-  "Context: the party is travelling the Thornwood Road at dusk. Time for a random encounter check.",
-  "Board state:",
-  "  scene: Thornwood Road",
-  "  combat: false",
-  "  (call list_roll_tables if you need to find the right table id)",
-].join("\n");
+const RESOLVE_SCENARIO = "three days through the Thornwood Road at dusk";
+
+// M7: chains 20_resolve -> 30_scene in one process, no file I/O between them
+// (STATUS.md: "two in-memory stages", chosen over the fuller file-based ICM
+// design for latency and because no validate.py infra exists here). This is
+// the one real path from a GM's trigger text to a rendered card — both the
+// live TRIGGER frame (orchestrator.onTrigger, below) and the manual "resolve"
+// stdin command run through it, so there is exactly one place this logic
+// lives.
+//
+// 20_resolve's own contract (gm-session/20_resolve/CONTEXT.md) ends at
+// reporting a mechanical result; it does not call propose_encounter — that
+// tool is deliberately not in resolveDomainTools' surface (§5.2's pruning
+// argument applies per stage, not just per subsystem). 30_scene turns that
+// result into the card, with propose_encounter as its only domain tool.
+async function runEncounterFlow(text) {
+  const resolveContent = [
+    `GM trigger: ${text}`,
+    "Board state:",
+    "  scene: (not yet threaded from foundry_state — v1 has no live entity linking, §7.3 is v2)",
+    "  combat: false",
+    "  (call list_roll_tables if you need to find the right table id)",
+  ].join("\n");
+
+  const resolveResult = await runStage({
+    stage: "20_resolve",
+    workspace,
+    modelClient,
+    subagentKey: "encounter",
+    userContent: resolveContent,
+    domainTools: resolveDomainTools(orchestrator),
+  });
+
+  if (resolveResult.timedOut || !resolveResult.content) {
+    console.error("gm-delegate-agent | runEncounterFlow | 20_resolve did not produce a result", resolveResult);
+    return { resolveResult, sceneResult: null };
+  }
+
+  const sceneContent = [`GM trigger: ${text}`, "20_resolve's result:", resolveResult.content].join("\n\n");
+
+  const sceneResult = await runStage({
+    stage: "30_scene",
+    workspace,
+    modelClient,
+    subagentKey: "encounter",
+    userContent: sceneContent,
+    domainTools: sceneDomainTools(orchestrator),
+  });
+
+  return { resolveResult, sceneResult };
+}
+
+// The live path: a GM types into the panel's trigger input (§4.7), the
+// module sends TRIGGER (M7, no reply in v1 — fire-and-forget, same as
+// EVENT), this fires the two-stage flow above. Errors are logged, not
+// thrown into the WS message handler — a bad trigger must not take down the
+// connection.
+orchestrator.onTrigger((payload) => {
+  runEncounterFlow(payload.text).catch((err) =>
+    console.error("gm-delegate-agent | runEncounterFlow (from TRIGGER) failed", err)
+  );
+});
 
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", async (line) => {
   const [cmd, ...rest] = line.trim().split(/\s+/);
   if (!cmd) return;
   try {
-    if (cmd === "rename") {
-      const actorUuid = rest[0];
-      if (!actorUuid) {
-        console.log('usage: rename <actorUuid>  (e.g. from fromUuid()-resolvable console output in Foundry)');
-        return;
-      }
-      const result = await orchestrator.sendIntent({
-        subsystem: "random_encounters",
-        stage: "prompt", // DEFAULT_POLICY: random_encounters.prompt = auto
-        action: "test.actor.rename",
-        args: { actorUuid, name: "Renamed by gm-delegate-agent" },
-      });
-      console.log("RESULT:", result);
-    } else if (cmd === "reject") {
+    if (cmd === "reject") {
       const result = await orchestrator.sendIntent({
         subsystem: "random_encounters",
         stage: "prompt",
@@ -62,56 +101,56 @@ process.stdin.on("data", async (line) => {
     } else if (cmd === "revoked") {
       console.log("REVOKED:", orchestrator.revoked);
     } else if (cmd === "resolve") {
-      // M6 (§5.2) manual driver — same role "rename"/"reject" play for M5:
-      // no live EventBus-driven trigger exists yet (that's M7/recap
-      // territory), so this hand-fires a 20_resolve stage run against a
-      // travel-encounter scenario, over the real wire, against the real
-      // Thornwood Road Encounters table.
+      // Manual driver for the same runEncounterFlow() a live TRIGGER fires —
+      // same role "reject" plays for the hard-ban path: hand-fire the real
+      // thing over the real wire without needing a live Panel click.
       //
       // Optional "resolve N": runs N times in a loop and prints a tool-call
-      // validity summary (STATUS.md 2026-08-13's 75%-on-8-calls finding was
-      // too small a sample to trust; this reruns it larger, same model, same
-      // scenario — not a model comparison, just a bigger N).
+      // validity summary across both stages (STATUS.md 2026-08-13's
+      // 75%-on-8-calls finding was too small a sample to trust; this reruns
+      // it larger, same model, same scenario — not a model comparison, just
+      // a bigger N).
       const n = Math.max(1, parseInt(rest[0], 10) || 1);
-      const userContent = RESOLVE_SCENARIO;
       const runs = [];
       for (let i = 0; i < n; i++) {
-        const result = await runStage({
-          stage: "20_resolve",
-          workspace,
-          modelClient,
-          subagentKey: "encounter",
-          userContent,
-          domainTools: resolveDomainTools(orchestrator),
-        });
-        runs.push(result);
+        const flow = await runEncounterFlow(RESOLVE_SCENARIO);
+        runs.push(flow);
         if (n === 1) {
-          console.log("RESOLVE:", JSON.stringify(result, null, 2));
+          console.log("RESOLVE:", JSON.stringify(flow, null, 2));
         } else {
-          console.log(`RESOLVE ${i + 1}/${n}:`, result.timedOut ? "TIMED OUT" : (result.content ?? "").slice(0, 80));
+          const proposed = flow.sceneResult?.toolLog.some((t) => t.name === "propose_encounter");
+          console.log(`RESOLVE ${i + 1}/${n}:`, flow.resolveResult.timedOut || flow.sceneResult?.timedOut ? "TIMED OUT" : proposed ? "PROPOSED" : "NO PROPOSAL");
         }
       }
       if (n > 1) {
-        const rollCalls = runs.flatMap((r) => r.toolLog.filter((t) => t.name === "roll_on_table"));
-        const validCalls = rollCalls.filter((t) => {
-          try {
-            return !JSON.parse(t.result).error;
-          } catch {
-            return true; // not JSON with an error field => a real result object
-          }
-        });
-        const completedRuns = runs.filter((r) => !r.timedOut && r.content);
+        const allCalls = runs.flatMap((r) => [...r.resolveResult.toolLog, ...(r.sceneResult?.toolLog ?? [])]);
+        const rollCalls = allCalls.filter((t) => t.name === "roll_on_table");
+        const proposeCalls = allCalls.filter((t) => t.name === "propose_encounter");
+        const validCalls = (calls) =>
+          calls.filter((t) => {
+            try {
+              return !JSON.parse(t.result).error;
+            } catch {
+              return true; // not JSON with an error field => a real result object
+            }
+          });
+        const validRolls = validCalls(rollCalls);
+        const validProposals = validCalls(proposeCalls);
+        const completedRuns = runs.filter((r) => !r.resolveResult.timedOut && r.sceneResult && !r.sceneResult.timedOut);
         console.log("RESOLVE SUMMARY:", {
           runs: n,
           completedRuns: completedRuns.length,
           rollOnTableCalls: rollCalls.length,
-          validCalls: validCalls.length,
-          validityRate: rollCalls.length ? `${((validCalls.length / rollCalls.length) * 100).toFixed(1)}%` : "n/a",
-          invalidArgs: rollCalls.filter((t) => !validCalls.includes(t)).map((t) => t.args),
+          validRollCalls: validRolls.length,
+          proposeEncounterCalls: proposeCalls.length,
+          validProposeCalls: validProposals.length,
+          invalidArgs: [...rollCalls, ...proposeCalls]
+            .filter((t) => !validRolls.includes(t) && !validProposals.includes(t))
+            .map((t) => ({ name: t.name, args: t.args })),
         });
       }
     } else {
-      console.log('unknown command. Try: "rename <actorUuid>", "reject", "events", "revoked"');
+      console.log('unknown command. Try: "reject", "events", "revoked", "resolve [N]"');
     }
   } catch (err) {
     console.error("command failed:", err.message);

@@ -1,8 +1,10 @@
 // Spec §4.4. The M2 Done-when checklist, one behavior per test. Uses the
 // same mocked game/canvas globals as the rest of the suite (tests/setup.js)
-// plus the real test-m1.js executors already registered for M1 — no live
-// Foundry needed, matching AGENTS.md's "outside Foundry: vitest against
-// mocked globals" guidance.
+// and M6's real roll_on_table executor as a stand-in auto-mode action — no
+// live Foundry needed, matching AGENTS.md's "outside Foundry: vitest against
+// mocked globals" guidance. M1's test-m1.js executors (test.actor.rename/
+// test.token.place) served this role through M6; deleted in M7 per the
+// 2026-07-12 decision recorded in STATUS.md ("delete test-m1.js in M7").
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { resetFoundry } from "./setup.js";
@@ -20,8 +22,8 @@ const baseIntent = (over = {}) => ({
   id: "test-id",
   subsystem: "random_encounters",
   stage: "prompt", // DEFAULT_POLICY: random_encounters.prompt = "auto"
-  action: "test.actor.rename",
-  args: {},
+  action: "roll_on_table",
+  args: { tableId: "RollTable.abc" },
   ...over,
 });
 
@@ -71,9 +73,10 @@ describe("Interceptor (§4.4) — Done when", () => {
   });
 
   it("leaves state unchanged when an executor throws (transaction rolls back)", async () => {
-    // fromUuid mock always resolves null, so renameActor's "no document at"
-    // guard throws — exercising the rollback path without a live Foundry doc.
-    const intent = baseIntent({ args: { actorUuid: "Actor.doesNotExist", name: "x" } });
+    // fromUuid mock always resolves null (tests/setup.js default), so
+    // roll_on_table's "no table at" guard throws — exercising the rollback
+    // path without a live Foundry doc.
+    const intent = baseIntent();
     const res = await handleIntent(intent);
     expect(res.status).toBe("REJECTED");
     expect(res.reason).toMatch(/^EXEC_FAILED: /);
