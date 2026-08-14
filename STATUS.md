@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Current milestone | **M5a — ICM walk test. PASSED 2026-08-13 (with one caveat).** The empirical question §5.5 posed — can the local quantized model orient and act from `gm-session/` files alone, no code-injected context — came back yes for `10_watch` and `20_resolve`; `30_scene` passes shape/length but doesn't reliably carry roll/dice provenance verbatim. See the session-6 decision log entry for the full per-stage breakdown and what this means for M6. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). New: `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index}.js`, own `package.json`/`tests/`). |
-| Test harness | Module: `npm install && npm test` — **111/111 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **16/16 passing**. (node v24.14.1, npm 11.11.0.) |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5 all live-verified. M2 still vitest-only (no DOM). |
-| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.5.0** / GitHub release `v0.5.0` installed and live-verified on this pod. |
+| Current milestone | **M6 — encounter tools via ICM StageRunner. Live-verified 2026-08-13 (v0.6.0).** `roll_on_table` returns Foundry's real roll and resolved quantity over the real wire; the model never computed a number in any run. Tool-call *argument* validity (using the real `tableId` vs. guessing a plausible string) measured **75% (6/8)** over a small live sample — below spec's >95% kill criterion. See the session-6 decision log entry. |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1,encounter}.js` (test-m1 is throwaway, delete in M7). `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`, own `package.json`/`tests/`). |
+| Test harness | Module: `npm install && npm test` — **126/126 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **23/23 passing**. (node v24.14.1, npm 11.11.0.) |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 still vitest-only (no DOM). |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.6.0** / GitHub release `v0.6.0` installed and live-verified on this pod. |
 | Model in use | **Qwen3.5 9B Q4_K_M, serving locally.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend, installed via `winget install ggml.llamacpp`) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Smoke-tested via `/v1/chat/completions`: steady-state ~71 tok/s prompt eval, ~78 tok/s generation (first request after load is much slower — one-time Vulkan shader-compile cost, not representative). It's a thinking model (emits `reasoning_content`); M5a/M6 will need to account for that in output parsing. **Embeddings (`nomic-embed-text` via Ollama, `config.yaml`'s other endpoint) is still not set up** — out of scope for what was asked this session, noted as a remaining gap before anything that needs embeddings. |
 
 ## Milestones
@@ -23,8 +23,8 @@
 | 4 | EventBus | **DONE — live-Foundry Done-when checklist passed 2026-08-12. `combat.turn` source swapped `updateCombat` → `combatStart`/`combatRound`/`combatTurn` this session (v0.4.0), live-confirmed no open items remain.** |
 | 5 | Agent server + ModelClient | **DONE — fully live-verified 2026-08-13 (v0.5.0, no code changes).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test + live handling. The session-5 WS handshake gap is closed: a real browser opened the handshake in ~12ms and completed a full INTENT→RESULT round trip through the actual agent process, over the real wire, executing against a real Actor. **Root cause of the session-5 failure is undetermined** — see decision log; two leading candidates were ruled out by direct A/B test, not confirmed as the fix. |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | **DONE — PASSED 2026-08-13, with a caveat on `30_scene` provenance. See decision log.** |
-| 6 | EncounterAgent, 5 tools | not started — unblocked, model now serving locally |
-| 7 | The card, with Edit | not started |
+| 6 | EncounterAgent, 5 tools | **DONE — Build Order's actual Done-when live-verified 2026-08-13 (v0.6.0): `roll_on_table` returns Foundry's real roll + resolved quantity, model never computes a number. Tool-call argument validity 75%, below >95% target — see decision log, a real finding, not swept under the rug.** |
+| 7 | The card, with Edit | not started — owns `propose_encounter`'s wire path, `place_encounter`'s real executor, and `proposals.js` (§5.7), deliberately deferred out of M6's scope |
 | 8–10 | Contingent. Do not plan them yet. | — |
 
 Briefings: `docs/milestones/`.
@@ -1030,6 +1030,129 @@ why — otherwise a future session will relitigate it again.)*
     session's harness used `max_tokens: 2048`, well above `config.yaml`'s `200` for `encounter` —
     that config value needs raising before M6 wires `ModelClient` for real, or every real call will
     truncate mid-reasoning the way the very first smoke test did).
+
+- **2026-08-13 (continued, session 6)** — **Built and live-verified M6 (encounter tools), shipped
+  as `v0.6.0`. Scoped as StageRunner/ICM per the M5a conditional, and tightly to Build Order's
+  actual Done-when — not the older, broader monolithic-EncounterAgent briefing.**
+  - **Architecture decision, confirmed with the user before writing code.**
+    `docs/milestones/06-encounter-agent.md` predates M5a and describes an `Orchestrator` +
+    single-system-prompt + flat-5-tool `EncounterAgent`. But spec §5.5 is explicit: ICM/StageRunner
+    *replaces* the Orchestrator, conditional on the M5a walk test passing — and it just had, this
+    same session. Asked the user which to build; chose StageRunner. The briefing file itself was
+    **not** updated this session (out of scope for the code work) — a future session should reconcile
+    it with what actually got built, same class of drift as the 2026-08-10 renumbering incident.
+  - **Scope, precisely bounded to Build Order's own Done-when (§8 row 6): "`roll_on_table` returns
+    Foundry's real roll and the resolved quantity. The model never computes a number."** That's it.
+    `propose_encounter`'s wire path, `place_encounter`'s real dedupe/import/place logic, and the
+    proposal store (`proposals.js`, §5.7) are explicitly **row 7's** Done-when ("Accept & Place
+    imports the Actor idempotently... Proposals expire and label themselves") — M7, not M6. Did not
+    build any of those three this session; `contracts/tools.json` already defines all 5 tools (no
+    change needed there), but only `list_roll_tables`/`roll_on_table`/`get_compendium_actor` got
+    executors. `propose_encounter` needs **no executor at all** for M6: under `DEFAULT_POLICY`,
+    `random_encounters.decide` defaults to `"propose"`, so an intent with that action and
+    `stage:"decide"` never reaches `execute()` — `handleIntent()` routes it straight to
+    `Panel.queue()` (M3's existing stub) and returns `QUEUED`. "M6 emits the proposal, M7 renders
+    it" (the briefing's own scope line) turned out to be literally true of the routing, not just a
+    description.
+  - **Authored the missing build prerequisite: the Thornwood roll table did not actually exist.**
+    §5.2 says "author one table (Thornwood) before M6 or M6 has no input," and M0's redefinition
+    (2026-08-10 entry above) said this was part of M0's scope — but `game.tables.contents` on the
+    live world came back `[]` this session. It was planned, never done. Created "Thornwood Road
+    Encounters" live via the console (`RollTable.create(...)`), a d20 table with five rows including
+    `"[[2d4]] Wolf Pack"` and `"[[1d6]] Wild Boars"`. **Verified v14's `TableResult` schema live
+    before writing any code** (spec §0 discipline): the result-text field is `name` in v14, not the
+    older `text` field that older Foundry versions and casual recall would suggest — confirmed via
+    `CONFIG.RollTable.documentClass.schema.fields`, not assumed. `table.draw()`'s return shape
+    (`{roll: {formula, total}, results: [...]}`) was also confirmed live before `encounter.js` was
+    written, not guessed from the spec's illustrative code alone.
+  - **`scripts/executors/encounter.js`**: `rollOnTable` (with `resolveInlineFormulas` — regex-
+    extracts a row's `[[NdM]]` and evaluates it via a real `Roll`, deterministically, in code, per
+    §5.2's explicit "the model never sees a formula" rule), `listRollTables`, `getCompendiumActor`.
+    All three `touches() => []` — none mutate a document, so there's nothing for undo to snapshot.
+    Registered in `executors/index.js` with a comment explaining why `propose_encounter`/
+    `place_encounter` are deliberately absent (see scope note above).
+  - **Found and fixed a real executor-shape bug of my own making before it reached the live test**:
+    spec §5.2's own code sample wraps `roll_on_table`'s mechanical data one level deeper than
+    `test-m1.js`'s executors do — `return { result: {...}, created: [] }`, not a flat object — so
+    the RESULT envelope's `payload.result` is itself `{ result: {...}, created: [] }`. My first
+    pass at `socket.js`'s new provenance-extraction helper read fields off the wrong level and every
+    field came back `undefined` in `tests/socket.test.js`; caught by the test, not by inspection.
+    Fixed by unwrapping `result.result` — noted here because the agent-side `stageRunner.js` has to
+    make the exact same unwrap when reporting `roll_on_table`'s result back to the model, and a
+    future session touching either side should know the nesting is intentional (spec's own shape),
+    not a bug to "simplify" away.
+  - **`scripts/socket.js`**: `logCard()` now receives a `provenance` field, populated only for
+    executed `roll_on_table` intents (`extractProvenance()`, defensive — returns `null` for every
+    other action rather than assuming). Satisfies M6's Done-when "provenance populated into M1's
+    log," live-confirmed via `getCardLog()` on the real world.
+  - **`gm-delegate-agent/src/stageRunner.js`, new**: runs one ICM stage for real. Hands the model
+    exactly `IDENTITY.md` + root `CONTEXT.md` + the stage's own `CONTEXT.md` (same "nothing
+    pre-loaded" discipline M5a's walk test established), gives it `read_file`/`list_files` scoped to
+    the workspace (path-escape checked) so it finds catalog files itself, and — the actual new thing
+    M6 needed — for `20_resolve` specifically, `list_roll_tables`/`roll_on_table` are sent as **real
+    INTENT envelopes over the real wire** via `orchestrator.sendIntent()`, not synthetic handlers
+    like the deleted M5a walk-test harness used. `10_watch`/`30_scene` are **not** wired for real
+    this session — M5a already validated their behavior with synthetic tool results, and wiring them
+    for real means `propose_encounter`'s wire path and a live EventBus trigger chain, both M7/recap
+    territory per the scope note above.
+  - **Two small pre-existing bugs found and fixed while wiring this, both direct blockers for M6,
+    neither scope creep**: `config.yaml`'s `workspace: "./gm-session"` resolved to
+    `gm-delegate-agent/gm-session/` (doesn't exist) instead of the real workspace at the project
+    root — nothing had ever read this value before M6 needed to, so it went unnoticed since M5.
+    Fixed to `"../gm-session"`, resolved relative to the config file itself (matching `config.js`'s
+    own `__dirname` pattern, not `process.cwd()`, which depends on how the process was launched).
+    Also bumped `encounter`'s `max_tokens` `200 → 2048` — the M5a entry above already flagged this
+    as too low for a thinking model; left uncaught it would have truncated every real `20_resolve`
+    call mid-reasoning, the same failure mode as the very first `llama-server` smoke test.
+    `classifier`'s `max_tokens: 32` has the identical problem and was **not** touched — nothing
+    calls it yet, so fixing it wasn't required for this session's task; flagged for whoever wires it.
+  - **Live verification, real wire, real world.** Cut `v0.6.0` (pushed + GitHub release + pod
+    module update, same established workflow as every prior release — asked the user first since
+    `git push` is now blocked by the permission classifier's auto-mode guard, a new restriction not
+    present in earlier sessions). Restarted the local agent with the new code, drove it via its
+    `resolve` stdin command (same "manual driver" role `test-m1.js`/`rename`/`reject` play — no live
+    EventBus trigger chain exists yet). First real run: the model called `roll_on_table` against
+    `RollTable.wrPvaOz83tmEmodd` and reported back exactly what Foundry rolled (`roll: 13, drawn:
+    "Wild Boars", dice: "1d6=1"`) with **zero computation of its own** — confirmed both from the
+    agent's own final answer and, independently, from the module's card log (`provenance` populated
+    correctly). This is the M6 Done-when, live, for real, not synthetic.
+  - **Measured tool-call validity over a live sample — a real, unflattering finding, reported
+    honestly rather than glossed over.** Ran 6 total `resolve` invocations across two sessions of the
+    agent process (1 + 5), reconstructed from the card log's `provenance`/`rejected` fields since the
+    PowerShell capture script's stdout interleaved confusingly across concurrent runs. Of 8 total
+    `roll_on_table` call attempts: **6 succeeded** (real roll, correct provenance), **2 were
+    rejected** (`EXEC_FAILED: roll_on_table: no table at thornwood_road_encounters` and
+    `...at encounters_world`) — in both cases the model **hallucinated a plausible-sounding tableId
+    string** instead of using the real UUID (`RollTable.wrPvaOz83tmEmodd`) that a prior
+    `list_roll_tables` call in the same run would have returned. **75% (6/8), below spec's own >95%
+    kill criterion** for tool-call validity (§9, restated in the M6 briefing's Traps section). Small
+    sample — six runs is not enough to trust the exact number — but the failure mode itself is real
+    and reproducible-looking, not a fluke: the model sometimes skips actually reading back
+    `list_roll_tables`'s result and guesses instead. **Not fixed this session** — the spec's own
+    remedy list for missing the tool-call-validity bar is "prune the surface further, move up a
+    model tier, or route this subagent to Claude," explicitly **not** "add a tool" or, by the same
+    logic, "prompt-tune around it." That's a model/tooling decision for a future session with more
+    data, not something to route around quietly here.
+  - **Secondary finding, not investigated further this session**: one of the two rejected calls
+    coincided with an `INTENT ... timed out after 5000ms waiting for RESULT` on the agent side, and
+    a corresponding `RESULT for unknown or already-settled intent` on the log — meaning the
+    module's `EXEC_FAILED` rejection didn't reach the agent before `Orchestrator`'s
+    `INTENT_TIMEOUT_MS` (5000ms, §9's whole-card budget) fired. Whether `fromUuid()` on a
+    malformed/nonexistent ID (`"encounters"`, `"thornwood_road_encounters"`) is unexpectedly slow,
+    or something else caused the delay, is unconfirmed — flagged for a future session, not chased
+    down here given it's adjacent to, not part of, M6's own Done-when.
+  - **World left running, not stopped**: the pod and local agent were both still up at the end of
+    this session for the user's own continued use. `Thornwood Road Encounters` (real roll table) and
+    the six test-run journal/card-log entries from this session's live verification are genuine,
+    intentional artifacts of building M6 — not cleaned up, since (unlike M5's throwaway rename test)
+    they're exactly what M6 is supposed to produce.
+  - **Next session:** M6 is DONE. Next is M7 (the card, with Edit) — `proposals.js` (§5.7),
+    `propose_encounter`'s real wire path, `place_encounter`'s dedupe/import/place executor, and the
+    actual visual card UI with Accept/Edit/Reroll/Skip. Before or alongside that, worth deciding
+    whether the 75% tool-call validity finding above changes anything about model choice (§10's
+    still-open "which model" question) or whether it's addressable with more `20_resolve/CONTEXT.md`
+    guidance about actually reading `list_roll_tables`'s output before calling `roll_on_table` — GM's
+    call, not decided here.
 
 ## Known forward references in the spec
 
