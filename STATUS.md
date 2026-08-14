@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass, shipped 4 fixes (v0.7.2, no module.json bump), and live-verified median 6647ms with a new open tradeoff — completion rate dropped 12/12 → 10/12 from a too-tight iteration cap; see decision log). |
+| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass, shipped 4 fixes (v0.7.2, no module.json bump), and after one iteration-cap correction (4→6) landed on a live-verified 12/12 completion rate at median 6528ms — real improvement, still short of <5s; see decision log). |
 | Code written | Session 7 built M7 end to end (see that entry below for the full file list). Session 8 (this one) added: `scripts/executors/encounter.js`'s `placeEncounter()` fix (interactive `placeTokens()` → programmatic `createEmbeddedDocuments()`), `tests/setup.js`'s matching mock update, `module.json` → **0.7.1**. |
 | Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6, and now M7 are live-verified. Only M2 remains vitest-only (by design — no DOM involved). |
@@ -1951,18 +1951,21 @@ why — otherwise a future session will relitigate it again.)*
         unilaterally re-tuning the cap and re-spending pod time without checking in first.
       - Pod stopped at end of session (billing halted, `/data` untouched).
   - **Same session, continued: `20_resolve`'s `maxIterations` set to 6** (user's own call, split
-    between the too-tight 4 and the original unbounded-tail 8; not re-derived from more data).
-    32/32 tests still pass. **Not yet live-re-verified** — the 12-run sample that found the
-    4-was-too-tight problem was itself one pod session's worth of real cost/time, and re-running
-    the same check after every single cap adjustment isn't free; asked before spending it again
-    rather than assumed.
-  - **Next session (or later this one, if re-verified):** if a live check hasn't happened yet,
-    get one before trusting 6 either — same lesson this file has now stated for M3, the 4th
-    failure mode, and the maxIterations cap itself, three separate times: a vitest pass proves
-    the code path exists, not that the value is right. Once completion rate and latency are both
-    acceptable, read whether the resulting live median clears <5s. If it's still short, option 4
-    from the agent's report (pre-resolve the roll table in code, skip the `list_roll_tables`
-    model round trip entirely) is the next-cheapest lever, not stage-merging.
+    between the too-tight 4 and the original unbounded-tail 8; not re-derived from more data),
+    then **live-re-verified the same session** (pod started clean on the first try again, still
+    CPU-pinned, same host-swap license re-verification as every prior restart). **This resolved
+    the tradeoff cleanly**: `resolve 12` against real Foundry came back **12/12 completed, 0
+    timed out, 12/12 valid `roll_on_table`, 12/12 valid `propose_encounter`, 0 invalid args** —
+    full completion rate restored to the pre-fix baseline, with none of the regression `4` caused.
+    **Median latency: ~6528ms** (sorted 6132–8028ms) — still above the <5s kill criterion, but a
+    real ~1270ms improvement over the pre-fix live median (~7800ms) with zero downside this time.
+    6 is confirmed as the value to keep; not re-opened without new evidence.
+  - **Next session:** the live median (~6528ms) is still short of <5s. Option 4 from the Opus
+    agent's report (pre-resolve the roll table in code — `index.js` calls `list_roll_tables`
+    itself and injects the result into `20_resolve`'s `userContent`, dropping that tool from the
+    surface entirely) is the next-cheapest lever per the agent's own ranking, not stage-merging.
+    It should also further shrink `20_resolve`'s completion count, which may make revisiting
+    `maxIterations` worthwhile again once it's landed — re-verify live, don't assume.
 
 ## Known forward references in the spec
 
