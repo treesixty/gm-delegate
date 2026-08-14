@@ -1695,14 +1695,49 @@ why — otherwise a future session will relitigate it again.)*
       known-bad cards, not a blind sample): round 1 edit, round 3 accept, round 4 a caught
       failure (not a content judgment at all). Too small and too deliberately stress-tested to
       read as a §9 data point — flagged so a future session doesn't mistake it for one.
+  - **After v0.7.2 shipped, extended the simulated session further** (user's own follow-up
+    request, mobile at the time and unable to test locally): "how close to a human GM session
+    can we get?" Answer given before proceeding: mechanically close (create PCs, populate a
+    scene, drive combat, exercise every wired feature), but Accept/Edit/Reroll/Skip judgment
+    calls are still this session's pattern-matching, not real GM taste — flagged explicitly so
+    the resulting numbers are never mistaken for a §9 measurement.
+    - **Correction made before spending pod time**: `combat_tactics` and `npc_voice` have no
+      backing AI content generator in this build — confirmed via `policy.js` (both default
+      `off/off`) and `stageRunner.js` (`sceneDomainTools()` only exists for `random_encounters`).
+      Their panel chips are UI-only plumbing from M3. Toggling them would have tested nothing.
+      Redirected to what's actually real: a small party, more `random_encounters` cycles, a live
+      Combat encounter, and M3's actually-implemented "I'll voice this one" TokenHUD feature.
+    - Created 3 PC Actors (`Actor.create`, `type: "character"`) and placed them as tokens.
+    - **Found a third distinct `propose_encounter` failure mode**: the exact trigger phrase that
+      had produced a valid card ~8 times already ("three days through the Thornwood") twice this
+      extended session produced **no card at all** — `roll_on_table` executed successfully
+      (confirmed in the journal), but `30_scene` never called `propose_encounter` and the run
+      completed cleanly (`llama-server`'s `/slots` showed `is_processing: false`, not hung).
+      Different from the earlier "ambiguous trigger" read (round 2, "makes camp for the night")
+      — this is the *same* proven-good trigger silently producing nothing. Alongside the
+      catastrophic-loop and bad-packId modes already logged, this is now three separate ways
+      `propose_encounter` can misbehave. Not chased further this session — flagged for the
+      larger-sample pass already recommended above.
+    - Started a real Combat encounter (3 PCs + placed monsters), rolled initiative, advanced a
+      turn. **Confirmed `foundry_state.combat: true` is captured correctly** when a trigger fires
+      mid-combat — every sample earlier this session had `combat: false`, so this was the first
+      live exercise of that branch of `captureFoundryState()`.
+    - **Confirmed M3's "I'll voice this one" TokenHUD feature still works in v0.7.2**, first live
+      exercise since 2026-08-12. Bound `canvas.hud.token` to a placed Boar, clicked the control,
+      confirmed `getPolicy().actorOverrides["mmBoar0000000000"].npc_voice` became
+      `{decide: "off", prompt: "off"}` — correct behavior, not a bug: "I'll voice this one" means
+      the GM is taking over, so the AI's npc_voice suggestions for that specific actor turn off,
+      per `voiceNpc()`'s own comment. Read the code before assuming `off/off` looked wrong.
   - **Next session:** M7 is done. Per 07-card.md's own instruction, this was the last milestone
     of the prototype — the next four sessions should be spent using it, not building on it, then
     §9's three thresholds (accept-without-edit rate >50%, median latency <5s, tool-call validity
     >95%) get read honestly. Latency is already known to be failing; watch whether it's a hard
     architectural cost (two model round trips) or something a smaller prompt/context fixes.
     `propose_encounter`'s reliability is worth a larger-sample pass if it keeps surfacing during
-    real use, same as `roll_on_table`'s did. Round 2's "no card produced" behavior is worth
-    watching too — confirm it's genuinely correct restraint and not the model quietly giving up.
+    real use, same as `roll_on_table`'s did — now three known failure modes (catastrophic loop,
+    bad packId/actorId, silent no-card), not one. Round 2's "no card produced" behavior is worth
+    watching too — confirm it's genuinely correct restraint for ambiguous triggers and not the
+    model quietly giving up on triggers that should work.
 
 ## Known forward references in the spec
 
