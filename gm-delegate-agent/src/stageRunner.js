@@ -5,8 +5,9 @@
 // test" rule — and lets it find catalog files itself via read_file/list_files
 // scoped to the workspace.
 //
-// M6 wired 20_resolve's domain tools (list_roll_tables, roll_on_table) over
-// the real wire. M7 adds 30_scene's one real tool (propose_encounter,
+// M6 wired 20_resolve's domain tools over the real wire (roll_on_table;
+// list_roll_tables moved out of the model-facing surface in session 10, see
+// resolveDomainTools' own header). M7 adds 30_scene's one real tool (propose_encounter,
 // sceneDomainTools below) — the two stages run as two separate runStage()
 // calls chained in one process by gm-delegate-agent/src/index.js's
 // runEncounterFlow(), no file I/O between them (STATUS.md: "two in-memory
@@ -87,29 +88,27 @@ function fsTools(workspace) {
 // the thing M6's Done-when actually tests (Foundry's real roll, the model
 // never computing a number).
 //
-// Two hardening changes, 2026-08-13 (STATUS.md), after finding the model
-// would repeatedly call roll_on_table instead of stopping once it had a
-// real result — a documented agentic-loop failure class, not something to
-// rely on prompting alone to fix ("developers should not rely on the model
-// to eventually stop producing tool calls," arXiv 2607.01641):
-//   1. `filter` is now required, not optional — llama.cpp #20164 ties Qwen3.5
-//      tool-call looping specifically to optional parameters.
-//   2. roll_on_table is capped at one real roll per stage run. A second call
-//      in the same run returns the cached first result instead of rolling
-//      again — this is also a correctness property, not just a loop
-//      workaround: the stage contract is exactly one roll, so a second real
-//      roll would itself be a kind of fabrication (the GM never asked for
-//      two encounters).
+// `list_roll_tables` is NOT exposed here (STATUS.md 2026-08-14 session 10,
+// Opus agent's option 4) — it's a deterministic Foundry query with no
+// judgment call in it, so spending a full model completion just to ask for
+// it was pure latency cost, not a decision worth delegating. index.js now
+// calls it directly in code and injects the result into 20_resolve's
+// userContent as board state; the model still picks which table fits the
+// trigger, it just reads the list instead of calling a tool for it.
+//
+// Hardening change, 2026-08-13 (STATUS.md), after finding the model would
+// repeatedly call roll_on_table instead of stopping once it had a real
+// result — a documented agentic-loop failure class, not something to rely
+// on prompting alone to fix ("developers should not rely on the model to
+// eventually stop producing tool calls," arXiv 2607.01641): roll_on_table
+// is capped at one real roll per stage run. A second call in the same run
+// returns the cached first result instead of rolling again — this is also
+// a correctness property, not just a loop workaround: the stage contract
+// is exactly one roll, so a second real roll would itself be a kind of
+// fabrication (the GM never asked for two encounters).
 export function resolveDomainTools(orchestrator) {
   let cachedRoll = null;
   const tools = [
-    {
-      name: "list_roll_tables",
-      description: "List roll tables in the world. Filter by name substring.",
-      parameters: Type.Object({
-        filter: Type.String({ description: "Name substring to filter by. Pass an empty string to list all tables." }),
-      }),
-    },
     {
       name: "roll_on_table",
       description:

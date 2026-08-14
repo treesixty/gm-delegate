@@ -24,16 +24,22 @@ needs, the moment escalates to the GM. It does not get computed as a workaround.
 One roll is the whole job. As soon as `roll_on_table` returns a result with no
 `error` field, you are done: stop calling tools and write the result block.
 
-- Call `list_roll_tables` at most once. Use a `tableId` copied verbatim from its
-  output. Never invent one.
+- The available roll tables are already listed in your board state (name + `tableId`),
+  not a tool you call. Pick the one that matches the trigger and copy its `tableId`
+  verbatim into `roll_on_table`. Never invent one.
 - Call `roll_on_table` exactly once. Do not re-roll to check, confirm, or get a
   better result. A second roll is a fabricated result — the same bug as
   computing one yourself.
 - If a call returns an error, report the error. Do not retry.
+- If board state has no roll tables (an empty list, or an `error` in place of the
+  list), there is nothing to roll on. Report that plainly instead of calling
+  `roll_on_table` with an invented `tableId`.
 
 ## Input
 
-The linked catalog doc from `10_watch/out/window.md`, plus board state.
+The linked catalog doc from `10_watch/out/window.md`, plus board state — which now
+includes the world's roll tables, already fetched. You still decide which one fits;
+you just don't spend a tool call finding out what exists.
 
 ## Output, `20_resolve/out/result.md`
 

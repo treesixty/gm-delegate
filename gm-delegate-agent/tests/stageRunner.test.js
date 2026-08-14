@@ -190,6 +190,12 @@ describe("resolveDomainTools — 20_resolve's tools go over the real wire (M6 Do
     orchestrator = new Orchestrator();
   });
 
+  it("does NOT expose list_roll_tables — session 10 moved it to a code-side pre-resolve (index.js's fetchRollTables)", () => {
+    const { tools, names } = resolveDomainTools(orchestrator);
+    expect(names.has("list_roll_tables")).toBe(false);
+    expect(tools.map((t) => t.name)).toEqual(["roll_on_table"]);
+  });
+
   it("sends roll_on_table as a real INTENT, stage 'prompt', and unwraps the executor's nested result", async () => {
     attachAutoReplyingConn(orchestrator, (payload) => ({
       status: "EXECUTED",

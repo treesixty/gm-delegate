@@ -35,13 +35,38 @@ const RESOLVE_SCENARIO = "three days through the Thornwood Road at dusk";
 // tool is deliberately not in resolveDomainTools' surface (§5.2's pruning
 // argument applies per stage, not just per subsystem). 30_scene turns that
 // result into the card, with propose_encounter as its only domain tool.
+//
+// list_roll_tables is resolved here in code, not by the model (STATUS.md
+// 2026-08-14 session 10, Opus agent's option 4): it's a deterministic
+// Foundry query with no judgment call in it, so spending a full model
+// completion just to ask "what tables exist" was pure latency cost. The
+// model still picks which table fits the trigger — it reads the list from
+// board state instead of calling a tool for it.
+async function fetchRollTables() {
+  try {
+    const outcome = await orchestrator.sendIntent({
+      subsystem: "random_encounters",
+      stage: "prompt", // §4.3: mechanical/drafting work — auto under DEFAULT_POLICY
+      action: "list_roll_tables",
+      args: { filter: "" },
+    });
+    if (outcome.status !== "EXECUTED") return { error: outcome.reason ?? outcome.status };
+    // executor wraps its data as { result: {...}, created: [] } (spec §5.2's
+    // own code sample) — unwrap one level, same as resolveDomainTools does.
+    return outcome.result?.result ?? outcome.result;
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 async function runEncounterFlow(text) {
+  const tables = await fetchRollTables();
   const resolveContent = [
     `GM trigger: ${text}`,
     "Board state:",
     "  scene: (not yet threaded from foundry_state — v1 has no live entity linking, §7.3 is v2)",
     "  combat: false",
-    "  (call list_roll_tables if you need to find the right table id)",
+    `  roll tables: ${JSON.stringify(tables)}`,
   ].join("\n");
 
   const resolveResult = await runStage({
@@ -58,11 +83,13 @@ async function runEncounterFlow(text) {
     // domain-tool error) outright, not just latency (STATUS.md 2026-08-14
     // session 10).
     useFsTools: false,
-    // Typical successful run is 2-3 iterations (list_roll_tables, roll_on_table,
-    // final text). 4 (session 10) was too tight — live-verified 2/12 runs
-    // that would have finished within the old 8-iteration budget instead
-    // produced no card at all. 6 (chosen by the user, not re-derived) trades
-    // some of that tail-guard tightness back for completion rate.
+    // Typical successful run is now 2 iterations (roll_on_table, final text)
+    // — one fewer than when this cap was tuned, since list_roll_tables no
+    // longer costs a model round trip (see fetchRollTables above). 4
+    // (session 10) was too tight for the 3-iteration flow that existed
+    // then; 6 (chosen by the user) restored full completion rate at that
+    // length. Left at 6 rather than re-tightened now that the typical count
+    // dropped again — re-verify live before changing it, don't assume.
     maxIterations: 6,
   });
 
