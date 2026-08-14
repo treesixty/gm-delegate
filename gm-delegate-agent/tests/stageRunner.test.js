@@ -3,6 +3,10 @@
 // project's content, not this test's concern) and a fake ModelClient/
 // Orchestrator, same "expose only what's actually called" minimalism the
 // module side's tests/setup.js and this package's orchestrator.test.js use.
+//
+// The fake ModelClient returns pi-ai's AssistantMessage shape directly
+// (content: (text|thinking|toolCall)[]) — matching the real ModelClient
+// since the 2026-08-13 pi-ai swap (STATUS.md) — not raw OpenAI JSON.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -33,10 +37,13 @@ function fakeModelClient(responses) {
 }
 
 function toolCallResponse(name, args) {
-  return { choices: [{ message: { tool_calls: [{ id: "tc1", function: { name, arguments: JSON.stringify(args) } }] } }] };
+  return { role: "assistant", content: [{ type: "toolCall", id: "tc1", name, arguments: args }] };
 }
-function finalResponse(content, reasoning = "") {
-  return { choices: [{ message: { content, reasoning_content: reasoning } }] };
+function finalResponse(text, thinking = "") {
+  const content = [];
+  if (thinking) content.push({ type: "thinking", thinking });
+  content.push({ type: "text", text });
+  return { role: "assistant", content };
 }
 
 // Auto-replies to any INTENT sent over a real Orchestrator, simulating the
@@ -55,15 +62,15 @@ function attachAutoReplyingConn(orchestrator, resultFor) {
 }
 
 describe("runStage — the I/O contract (§5.5, the M5a-fixed harness gap)", () => {
-  it("hands the model IDENTITY + root CONTEXT + the stage's own CONTEXT, nothing else pre-loaded", async () => {
+  it("hands the model IDENTITY + root CONTEXT + the stage's own CONTEXT via systemPrompt, nothing else pre-loaded", async () => {
     const modelClient = fakeModelClient([finalResponse("done")]);
     await runStage({ stage: "20_resolve", workspace, modelClient, subagentKey: "encounter", userContent: "go" });
 
-    const [, { messages }] = modelClient.chatComplete.mock.calls[0];
-    expect(messages[0].content).toContain("prompter, never a voice");
-    expect(messages[0].content).toContain("workspace map");
-    expect(messages[0].content).toContain("call a tool, never compute");
-    expect(messages[0].content).not.toContain("GM-only content"); // never pre-loaded
+    const [, { systemPrompt }] = modelClient.chatComplete.mock.calls[0];
+    expect(systemPrompt).toContain("prompter, never a voice");
+    expect(systemPrompt).toContain("workspace map");
+    expect(systemPrompt).toContain("call a tool, never compute");
+    expect(systemPrompt).not.toContain("GM-only content"); // never pre-loaded
   });
 
   it("returns the final content once the model stops calling tools", async () => {

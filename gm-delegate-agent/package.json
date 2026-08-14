@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.1",
     "ajv": "^8.17.1",
     "ws": "^8.18.0",
     "yaml": "^2.5.0"

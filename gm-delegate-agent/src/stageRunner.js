@@ -11,10 +11,16 @@
 // THEM for real — propose_encounter's wire path, the live EventBus trigger
 // chain that would drive 10_watch automatically — is M7/recap territory
 // (build-order §8 row 7), not M6's. See STATUS.md.
+//
+// Tool calling and message shapes are pi-ai's (2026-08-13 decision,
+// STATUS.md): Context.messages are UserMessage/AssistantMessage/
+// ToolResultMessage, tool parameters are TypeBox schemas, and a ToolCall's
+// `arguments` arrive already parsed — no more hand-rolled JSON.parse().
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Type } from "@earendil-works/pi-ai";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_TOOL_ITERATIONS = 8;
@@ -36,26 +42,20 @@ function safeResolve(workspace, relPath) {
 }
 
 function fsTools(workspace) {
-  const definitions = [
+  const tools = [
     {
-      type: "function",
-      function: {
-        name: "list_files",
-        description: "List files/directories in the gm-session workspace.",
-        parameters: { type: "object", properties: { dir: { type: "string", description: "Path relative to workspace root. Default '.'." } } },
-      },
+      name: "list_files",
+      description: "List files/directories in the gm-session workspace.",
+      parameters: Type.Object({
+        dir: Type.Optional(Type.String({ description: "Path relative to workspace root. Default '.'." })),
+      }),
     },
     {
-      type: "function",
-      function: {
-        name: "read_file",
-        description: "Read a file's content from the gm-session workspace.",
-        parameters: {
-          type: "object",
-          required: ["path"],
-          properties: { path: { type: "string", description: "Path relative to workspace root, e.g. _npcs/innkeeper.md" } },
-        },
-      },
+      name: "read_file",
+      description: "Read a file's content from the gm-session workspace.",
+      parameters: Type.Object({
+        path: Type.String({ description: "Path relative to workspace root, e.g. _npcs/innkeeper.md" }),
+      }),
     },
   ];
   function call(name, args) {
@@ -66,30 +66,24 @@ function fsTools(workspace) {
     if (name === "read_file") return readFileSync(safeResolve(workspace, args.path), "utf8");
     return undefined;
   }
-  return { definitions, call, names: new Set(definitions.map((d) => d.function.name)) };
+  return { tools, call, names: new Set(tools.map((t) => t.name)) };
 }
 
 // 20_resolve's domain tools, sent as real INTENTs over the wire — this is
 // the thing M6's Done-when actually tests (Foundry's real roll, the model
 // never computing a number).
 export function resolveDomainTools(orchestrator) {
-  const definitions = [
+  const tools = [
     {
-      type: "function",
-      function: {
-        name: "list_roll_tables",
-        description: "List roll tables in the world. Filter by name substring.",
-        parameters: { type: "object", properties: { filter: { type: "string" } } },
-      },
+      name: "list_roll_tables",
+      description: "List roll tables in the world. Filter by name substring.",
+      parameters: Type.Object({ filter: Type.Optional(Type.String()) }),
     },
     {
-      type: "function",
-      function: {
-        name: "roll_on_table",
-        description:
-          "Roll on a table. Foundry performs the roll. Returns the drawn result, the dice that produced it, and the resolved quantity. Does NOT display to chat.",
-        parameters: { type: "object", required: ["tableId"], properties: { tableId: { type: "string" } } },
-      },
+      name: "roll_on_table",
+      description:
+        "Roll on a table. Foundry performs the roll. Returns the drawn result, the dice that produced it, and the resolved quantity. Does NOT display to chat.",
+      parameters: Type.Object({ tableId: Type.String() }),
     },
   ];
   async function call(name, args) {
@@ -104,7 +98,7 @@ export function resolveDomainTools(orchestrator) {
     // (spec §5.2's own code sample) — unwrap one level for the model.
     return JSON.stringify(outcome.result?.result ?? outcome.result);
   }
-  return { definitions, call, names: new Set(definitions.map((d) => d.function.name)) };
+  return { tools, call, names: new Set(tools.map((t) => t.name)) };
 }
 
 export async function runStage({ stage, workspace, modelClient, subagentKey, userContent, domainTools }) {
@@ -113,39 +107,61 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
   const STAGE_CONTEXT = readFileSync(safeResolve(workspace, `${stage}/CONTEXT.md`), "utf8");
 
   const fs_ = fsTools(workspace);
-  const tools = [...fs_.definitions, ...(domainTools?.definitions ?? [])];
+  const tools = [...fs_.tools, ...(domainTools?.tools ?? [])];
 
-  const preamble =
-    "You are running in this workspace; here are the files. " +
-    "Your final chat response — once you are done calling tools — is taken verbatim as this stage's output. " +
-    "You have no write tool and do not need one.";
-  const messages = [
-    { role: "system", content: [preamble, IDENTITY, ROOT_CONTEXT, STAGE_CONTEXT].join("\n\n---\n\n") },
-    { role: "user", content: userContent },
-  ];
+  const systemPrompt = [
+    "You are running in this workspace; here are the files.",
+    "Your final chat response — once you are done calling tools — is taken verbatim as this stage's output.",
+    "You have no write tool and do not need one.",
+    IDENTITY,
+    ROOT_CONTEXT,
+    STAGE_CONTEXT,
+  ].join("\n\n---\n\n");
+  const messages = [{ role: "user", content: userContent, timestamp: Date.now() }];
 
   const toolLog = [];
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const res = await modelClient.chatComplete(subagentKey, { messages, tools });
-    const msg = res.choices[0].message;
-    if (msg.tool_calls?.length) {
-      messages.push(msg);
-      for (const tc of msg.tool_calls) {
-        const args = JSON.parse(tc.function.arguments || "{}");
-        let result;
+    const assistantMessage = await modelClient.chatComplete(subagentKey, { systemPrompt, messages, tools });
+    messages.push(assistantMessage);
+
+    const toolCalls = assistantMessage.content.filter((b) => b.type === "toolCall");
+    if (toolCalls.length) {
+      for (const tc of toolCalls) {
+        let resultText;
+        let isError = false;
         try {
-          if (fs_.names.has(tc.function.name)) result = fs_.call(tc.function.name, args);
-          else if (domainTools?.names.has(tc.function.name)) result = await domainTools.call(tc.function.name, args);
-          else result = JSON.stringify({ error: `unknown tool: ${tc.function.name}` });
+          if (fs_.names.has(tc.name)) resultText = fs_.call(tc.name, tc.arguments);
+          else if (domainTools?.names.has(tc.name)) resultText = await domainTools.call(tc.name, tc.arguments);
+          else {
+            resultText = JSON.stringify({ error: `unknown tool: ${tc.name}` });
+            isError = true;
+          }
         } catch (err) {
-          result = JSON.stringify({ error: err.message });
+          resultText = JSON.stringify({ error: err.message });
+          isError = true;
         }
-        toolLog.push({ name: tc.function.name, args, result });
-        messages.push({ role: "tool", tool_call_id: tc.id, content: result });
+        toolLog.push({ name: tc.name, args: tc.arguments, result: resultText });
+        messages.push({
+          role: "toolResult",
+          toolCallId: tc.id,
+          toolName: tc.name,
+          content: [{ type: "text", text: resultText }],
+          isError,
+          timestamp: Date.now(),
+        });
       }
       continue;
     }
-    return { stage, content: msg.content ?? "", reasoning: msg.reasoning_content ?? "", toolLog, iterations: i + 1 };
+
+    const content = assistantMessage.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+    const reasoning = assistantMessage.content
+      .filter((b) => b.type === "thinking")
+      .map((b) => b.thinking)
+      .join("");
+    return { stage, content, reasoning, toolLog, iterations: i + 1 };
   }
   return { stage, content: null, reasoning: "", toolLog, iterations: MAX_TOOL_ITERATIONS, timedOut: true };
 }
