@@ -2095,11 +2095,44 @@ why — otherwise a future session will relitigate it again.)*
   - Pod left running at end of session (Foundry + agent server both still up); the stale
     first-card proposal (Wolf Pack, from before the fix) was clicked Skip to leave the
     panel queue clean rather than left to expire.
+  - Committed this session's fix + this entry (`ad06d55`), not pushed.
+
+- **2026-08-14 (session 11, continued)** — **More walkthrough rounds on the same running
+  pod, still explicitly not one of the §9 four real sessions.** Fired 5 more triggers
+  through the actual panel (not `resolve N`), varying GM response across all four card
+  buttons. 6 cards total this round (1 superseded by its own reroll): 3 accept, 1 reroll
+  (→ accepted its result), 1 skip, 1 already covered above. Beats stayed clean on all 5
+  post-fix cards — the one malformed sample was pre-fix and hasn't repeated, though N is
+  too small to call it a resolved pattern. All 3 accepted cards placed the exact right
+  token count (Bandit×3, Wolf×3, Boar×5), confirming the packId/actorId fix holds across
+  Wolf, Bandit, *and* Boar rows, not just the one row tested during the fix itself.
+  - **New finding: the full live path is slower than the number STATUS.md has been
+    tracking.** These 6 samples went trigger → `TRIGGER` frame → WS → agent →
+    `runEncounterFlow` → `INTENT` back → Foundry writes the card → panel re-renders —
+    the actual GM-facing path. Median **9816ms** (sorted 7698, 7992, 9762, 9870, 10732,
+    12332). Every prior latency number in this file (session 9/10's ~6018–7800ms figures)
+    came from the agent's local `resolve N` stdin driver, which calls `runEncounterFlow`
+    directly and never touches the WebSocket, the RunPod network tunnel, or Foundry's own
+    document-write path. **The two numbers are not measuring the same thing** — `resolve
+    N` was always a lower bound on model-side latency, not an estimate of what a GM
+    actually experiences. This session's number is the first one that is. Not directly
+    comparable to the <5s kill criterion threshold either way without deciding which path
+    the criterion is meant to measure — flagging rather than concluding.
+  - Small sample (n=6, one AI's own judgment standing in for a GM's), one host (RunPod
+    tunnel adds latency a GM running Foundry locally wouldn't pay) — do not treat 9816ms
+    as the real-session number, treat it as evidence the local-only figure was
+    optimistic and that the next session should measure latency through this same full
+    path, on whatever host the real four sessions actually run on.
+  - Pod left running, agent server left running. Card log for this round is in
+    `getCardLog()` on the live pod, not reproduced here — this file records the summary,
+    not the raw log.
   - **Next session:** the real four §9 sessions can now actually measure accept rate —
-    this was the blocker. `gm-session/20_resolve/CONTEXT.md`'s fix is uncommitted; commit
-    it before relying on it past this session's running pod/agent process. Latency
-    decision from session 10 (stage-merging vs. accept-and-move-on) is still open and
-    unaffected by this session's work.
+    this was the blocker. Latency measurement approach needs a decision: keep using
+    `resolve N` for fast dev-loop iteration (fine for that) but stop reporting it as *the*
+    latency number — the full-path number is what the kill criterion should be judged
+    against. Session 10's stage-merging-vs-accept-and-move-on decision is still open and
+    now arguably more urgent given the full-path number is further from <5s than the
+    local-only one suggested.
 
 ## Known forward references in the spec
 
