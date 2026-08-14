@@ -233,6 +233,25 @@ describe("Panel — the card, Accept/Edit/Reroll/Skip (§5.4/§5.7, M7)", () => 
     expect(entry.card_text).toContain("Sound first.");
   });
 
+  it("Accept & Place failure: does not falsely log accept, notifies the GM, and leaves the card queued", async () => {
+    // No stubPlacement() — beforeEach's game.packs.get returns null, so
+    // place_encounter's resolveOrImportActor throws "no pack", same failure
+    // shape a bad model-supplied packId produces live (STATUS.md session 8).
+    sendTrigger("three days through the Thornwood");
+    Panel.queue(proposeIntent());
+    const proposalId = Panel.queued[0].proposalId;
+
+    const outcome = await acceptProposal(proposalId);
+
+    expect(outcome.status).toBe("REJECTED");
+    expect(Panel.queued).toHaveLength(1); // not silently dequeued
+    expect(getProposal(proposalId)).not.toBeNull(); // not consumed
+    expect(ui.notifications.error).toHaveBeenCalledWith(expect.stringContaining(outcome.reason));
+    const entry = getCardLog().at(-1);
+    expect(entry.gm_action).toBe("accept"); // still the GM's real action
+    expect(entry.rejected).toMatchObject({ reason: outcome.reason, action: "place_encounter" });
+  });
+
   it("Edit: logs the diff between original and kept text, then places", async () => {
     sendTrigger("three days through the Thornwood");
     Panel.queue(proposeIntent());
@@ -249,6 +268,25 @@ describe("Panel — the card, Accept/Edit/Reroll/Skip (§5.4/§5.7, M7)", () => 
     expect(entry.card_text).toBe(editedText);
     expect(entry.gm_edit_diff).toContain("+ " + editedText);
     expect(getProposal(proposalId)).toBeNull();
+  });
+
+  it("Edit failure: does not falsely log a positive edit, notifies the GM, and leaves the card queued", async () => {
+    sendTrigger("three days through the Thornwood");
+    Panel.queue(proposeIntent());
+    const proposalId = Panel.queued[0].proposalId;
+
+    startEdit(proposalId);
+    const editedText = "• Sound first.\nHook: edited.";
+    const outcome = await confirmEdit(proposalId, editedText);
+
+    expect(outcome.status).toBe("REJECTED");
+    expect(Panel.queued).toHaveLength(1);
+    expect(getProposal(proposalId)).not.toBeNull();
+    expect(ui.notifications.error).toHaveBeenCalledWith(expect.stringContaining(outcome.reason));
+    const entry = getCardLog().at(-1);
+    expect(entry.gm_action).toBe("edit");
+    expect(entry.card_text).toBe(editedText);
+    expect(entry.rejected).toMatchObject({ reason: outcome.reason, action: "place_encounter" });
   });
 
   it("cancelEdit does not log or dequeue anything", () => {

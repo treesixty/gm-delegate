@@ -116,7 +116,7 @@ function computeEditDiff(original, finalText) {
   return original === finalText ? null : `- ${original}\n+ ${finalText}`;
 }
 
-async function logProposalOutcome(entry, gm_action, { card_text, gm_edit_diff = null } = {}) {
+async function logProposalOutcome(entry, gm_action, { card_text, gm_edit_diff = null, rejected = null } = {}) {
   const { proposal, cardLogContext } = entry;
   return logCard({
     intent_id: proposal.intent_id ?? null,
@@ -131,6 +131,7 @@ async function logProposalOutcome(entry, gm_action, { card_text, gm_edit_diff = 
     card_text: card_text ?? buildCardText(proposal),
     gm_action,
     gm_edit_diff,
+    rejected,
   });
 }
 
@@ -187,6 +188,17 @@ export async function acceptProposal(proposalId) {
   if (!entry) return null; // gone (expired, already actioned) between render and click
   markProposalOpened(proposalId);
   const outcome = await runExecute({ id: proposalId, action: "place_encounter", args: { proposalId } });
+  if (outcome.status !== "EXECUTED") {
+    // Placement actually failed (e.g. a bad packId/actorId from the model) —
+    // the card log must not claim a positive "accept" for content that never
+    // got placed, and the GM needs to know their click didn't silently work.
+    // Leave the card queued rather than dequeuing: Reroll/Skip are still the
+    // GM's call, not this function's to make for them.
+    ui.notifications?.error(`gm-delegate | Accept & Place failed: ${outcome.reason}`);
+    await logProposalOutcome(entry, "accept", { rejected: { reason: outcome.reason, action: "place_encounter" } });
+    activeInstance?.render();
+    return outcome;
+  }
   await logProposalOutcome(entry, "accept");
   dequeue(proposalId);
   activeInstance?.render();
@@ -218,6 +230,16 @@ export async function confirmEdit(proposalId, editedText) {
   const diff = computeEditDiff(original, editedText);
   markProposalOpened(proposalId);
   const outcome = await runExecute({ id: proposalId, action: "place_encounter", args: { proposalId } });
+  if (outcome.status !== "EXECUTED") {
+    ui.notifications?.error(`gm-delegate | Use edited & Place failed: ${outcome.reason}`);
+    await logProposalOutcome(entry, "edit", {
+      card_text: editedText,
+      gm_edit_diff: diff,
+      rejected: { reason: outcome.reason, action: "place_encounter" },
+    });
+    activeInstance?.render();
+    return outcome;
+  }
   await logProposalOutcome(entry, "edit", { card_text: editedText, gm_edit_diff: diff });
   dequeue(proposalId);
   activeInstance?.render();

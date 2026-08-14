@@ -1,16 +1,16 @@
 # Status
 
-**Updated:** 2026-08-14 (session 7)
+**Updated:** 2026-08-14 (session 8)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M7 — the card, with Edit. Build-complete, live-verification NOT run this session** (pod was deliberately kept stopped throughout — see decision log). All logic-side pieces are vitest-covered (184/184 across both packages); the DOM/ApplicationV2 half, the wire-triggered agent flow, and the latency/tool-call-validity Done-when numbers are unverified, same "logic-complete, not demo-complete" status M3 carried after its first session. **Do not treat M7 as done until a live pass runs.** |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `scripts/proposals.js` (new, §5.7), `templates/{panel,card-encounter}.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,encounter}.js` (`test-m1.js` deleted this session, per the standing 2026-07-12/2026-08-10 decision). `contracts/envelope.schema.json` gained a 7th frame type, `TRIGGER`. `gm-delegate-agent/` — `src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`; `orchestrator.js` and `index.js` gained the TRIGGER handler and the two-stage `runEncounterFlow()`; `stageRunner.js` gained `sceneDomainTools()`. `gm-session/30_scene/CONTEXT.md` rewritten to call `propose_encounter` instead of describing a markdown file. |
+| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion). |
+| Code written | Session 7 built M7 end to end (see that entry below for the full file list). Session 8 (this one) added: `scripts/executors/encounter.js`'s `placeEncounter()` fix (interactive `placeTokens()` → programmatic `createEmbeddedDocuments()`), `tests/setup.js`'s matching mock update, `module.json` → **0.7.1**. |
 | Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 and (as of this session) M7 are vitest-only so far. |
-| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **Stopped this session, at the user's request, before any M7 code was written** — `module.json` on the pod is still **v0.6.0**; this session's changes are uncommitted and not on the pod. |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6, and now M7 are live-verified. Only M2 remains vitest-only (by design — no DOM involved). |
+| Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. **Started this session** after 9 consecutive `start-pod` "not enough free GPUs" failures (same recurring error logged in prior sessions; cleared on the 10th attempt, no recreate needed this time). `module.json` on the pod is now **v0.7.1**. World: `delegate-test`, Gamemaster login password `waterisgood` (world-level auth, distinct from the admin key). **Playwright MCP browser tools were available this session** — the whole live pass was driven directly (navigate/click/type/evaluate) rather than relaying console output through the user, a first for this project. Pod left running at end of session — user did not ask to stop it. |
 | Model in use | **Qwen3.5 9B Q4_K_M, serving locally, reasoning OFF.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Running with Qwen's own documented non-thinking sampler settings — `--temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --reasoning off --no-reasoning-preserve` — since 2026-08-13. **Embeddings (`nomic-embed-text` via Ollama) still not set up** — unchanged this session. |
 
 ## Milestones
@@ -24,8 +24,8 @@
 | 5 | Agent server + ModelClient | **DONE — fully live-verified 2026-08-13 (v0.5.0, no code changes).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test + live handling. The session-5 WS handshake gap is closed: a real browser opened the handshake in ~12ms and completed a full INTENT→RESULT round trip through the actual agent process, over the real wire, executing against a real Actor. **Root cause of the session-5 failure is undetermined** — see decision log; two leading candidates were ruled out by direct A/B test, not confirmed as the fix. |
 | 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | **DONE — PASSED 2026-08-13, with a caveat on `30_scene` provenance. See decision log.** |
 | 6 | EncounterAgent, 5 tools | **DONE — Build Order's actual Done-when live-verified 2026-08-13 (v0.6.0): `roll_on_table` returns Foundry's real roll + resolved quantity, model never computes a number. Tool-call argument validity 75%, below >95% target — see decision log, a real finding, not swept under the rug.** |
-| 7 | The card, with Edit | **BUILD-COMPLETE, NOT live-verified (2026-08-14).** `propose_encounter`'s wire path, `place_encounter`'s real executor, `proposals.js`, the card UI, and the trigger→two-stage-agent→card round trip are all written and vitest-covered. No pod session ran against any of it. See the session-7 decision log entry for the full list of what still needs a live pass and the architectural forks resolved along the way. |
-| 8–10 | Contingent. Do not plan them yet. | — |
+| 7 | The card, with Edit | **DONE — live-Foundry Done-when checklist passed 2026-08-14 (session 8, v0.7.1), all 9 items.** One real bug found and fixed (`place_encounter` used Foundry's interactive `placeTokens()`, which hangs forever headlessly). Median latency **6562ms, misses the <5s kill criterion** — flagged, not hidden. `propose_encounter` tool-call reliability is real but intermittent (one 8-call catastrophic loop with leaked tool-syntax text in ~10 live samples, rest clean) — see decision log. |
+| 8–10 | Contingent. Do not plan them yet. **Per 07-card.md: this was the last milestone of the prototype — run four more sessions, then read §9 before deciding what any of it means.** | — |
 
 Briefings: `docs/milestones/`.
 
@@ -1515,6 +1515,194 @@ why — otherwise a future session will relitigate it again.)*
     session, first move:** get sign-off to start the pod, reinstall at whatever version this gets
     bumped to when committed, then work `docs/milestones/07-card.md`'s Done-when list start to
     finish — this entry's own list above is that Done-when list's live-verification half.
+
+- **2026-08-14 (session 8)** — **M7's live-verify pass run to completion. All 9 Done-when items
+  from `docs/milestones/07-card.md` confirmed against the real pod, one real bug found and fixed,
+  one real kill-criterion miss measured and left visible rather than smoothed over.**
+  - **Pod start: 9 consecutive `start-pod` failures** ("not enough free GPUs on the host machine",
+    the same recurring error logged in three prior sessions), cleared on attempt 10 with no
+    terminate+recreate needed this time — the fastest full recovery of this failure mode so far.
+  - **Playwright MCP browser tools were available this session, a first for this project.**
+    Every prior live-Foundry pass (M1, M3, M4, M6) was driven by the user pasting console output
+    back by hand (2026-08-12 session entry: "No browser-automation tool was available… noted as a
+    gap, not a blocker"). This session drove the whole thing directly — navigate, click, type,
+    `evaluate()` — end to end, no manual relay. Worth naming as a real capability change, not
+    just a detail of how this session happened to go.
+  - **Deployment mechanics, two real gotchas hit and resolved:**
+    1. **A locally-built zip with backslash-separated entry paths silently breaks the Foundry
+       install.** PowerShell's `Compress-Archive` and even .NET's `[System.IO.Compression.ZipFile]::CreateFromDirectory`
+       both write Windows path separators (`scripts\main.js`) into zip entry names on this
+       platform — the felddy Docker image's Linux-side unzip doesn't treat that as a directory
+       separator, so files would land as literally-named `scripts\main.js` at the zip root
+       instead of inside `scripts/`. Fixed by building the archive entry-by-entry with
+       `ZipArchiveMode.Create` and explicit `-replace '\\','/'` on each relative path. Verified
+       with `unzip -l` before uploading, not assumed.
+    2. **`raw.githubusercontent.com` caches the manifest independently of the actual git ref.**
+       After pushing the `module.json` version bump, Foundry's "Perform Update" check kept
+       reporting the old version for several minutes — confirmed via the GitHub Contents API
+       that `master` already had the new content, so this was a CDN cache lag (~5 min), not a
+       push failure. Waited it out with a polling loop rather than assuming the push was broken.
+    Both are now known costs of this project's "cut a release, point the manifest at it" deploy
+    path (2026-08-11 decision) — worth remembering before assuming a future deploy issue is a
+    code bug.
+  - **Real bug found and fixed: `place_encounter` hung forever on every Accept & Place.**
+    `scripts/executors/encounter.js`'s `placeEncounter()` called `canvas.tokens.placeTokens(tokenData, {})`.
+    Read live (not assumed): that method is Foundry's **interactive** click-to-place workflow —
+    it registers `pointerdown`/`pointermove` listeners on `canvas.stage` and returns a
+    `Promise.withResolvers()` promise that only resolves when a human clicks the canvas once per
+    token. Called headlessly (an automated Accept & Place, or any real GM who just clicks the
+    button once and expects it to be done), it never resolves — `acceptProposal()` in `panel.js`
+    awaits it forever, so no journal entry, no dequeue, no tokens, no visible error. 100%
+    reproducible, not intermittent — worse than the tool-call reliability finding below because
+    it broke every single Accept & Place, not a fraction of them.
+    - **Fix**: `canvas.scene.createEmbeddedDocuments("Token", tokenData)`, a real programmatic
+      bulk create, with tokens scattered in a small grid around the scene center (`getTokenDocument()`
+      defaults x/y to 0,0, which would have stacked every token exactly on top of the last).
+      This is also the creation path `journal.js`'s `commit()` was actually built to expect — its
+      duplicate-history guard (2026-08-10 decision, this file) exists specifically because
+      "v14 core may already record history on a programmatic `createEmbeddedDocuments`," which
+      only makes sense if that's the intended call. `placeTokens()`'s interactive workflow was
+      never what the rest of the system was designed around.
+    - `tests/setup.js`'s mock updated to match (`canvas.scene.createEmbeddedDocuments` now
+      returns objects with a working `toObject()`, `canvas.grid`/`canvas.scene.dimensions`
+      added). 156/156 module tests still pass.
+    - Shipped as **v0.7.1**. Required the user's explicit sign-off twice — once to cut the
+      GitHub release (blocked by the auto-mode classifier as a public/visible action) and once
+      to commit+push the version bump to `master` (needed for the manifest to actually point at
+      the new release) — both asked for and granted before proceeding, not assumed.
+  - **Live-confirmed all 9 Done-when items**, via direct browser automation against
+    `game.modules.get("gm-delegate").api` and the real DOM:
+    - `propose` mode renders the card: `card-encounter.hbs` compiled cleanly as a Handlebars
+      partial (console-confirmed), the panel and its chips/RECLAIM/undo/trigger-input all mount
+      correctly — the exact class of risk M3's first session got wrong five different ways
+      (2026-08-12 entry) did not recur here.
+    - Accept & Place: real Bandit tokens created via the fixed `createEmbeddedDocuments` path,
+      `undoLast(1)` removed all of them, journal entry flipped to `reverted: true`.
+    - Edit: opened the textarea, edited text, `gm_action: "edit"` logged with a correct
+      `- original\n+ edited` `gm_edit_diff`, `place_encounter` fired with the edited text.
+    - Reroll: `gm_action: "reroll"` logged against the discarded proposal's id, a fresh
+      trigger→card cycle followed automatically.
+    - Skip: `gm_action: "skip"` logged, card dismissed, queue emptied.
+    - Expire: **confirmed the panel's own `_prepareContext()` marks every rendered proposal
+      "opened" immediately** (`markProposalOpened()` at the point cards are built for display) —
+      meaning a proposal can only ever go truly unopened if the GM's panel isn't currently
+      mounted. Closed the panel via `foundry.applications.instances`, fired a trigger through a
+      dynamic `import()` of `panel.js` (to reach the unexported `sendTrigger()`), confirmed
+      `opened: false` on the resulting proposal, then let the real 15-minute TTL and the real
+      60-second `sweepExpired()` interval (both already wired, `main.js`) run to completion.
+      **`gm_action: "expired"` logged correctly** — not simulated, not sped up.
+    - Provenance line: checked by hand against the actual queued intent — table id, roll, and
+      result matched exactly (`RollTable.wrPvaOz83tmEmodd · roll 9 → [1d4] Bandits`, quantity
+      line `Foundry rolled 1d4=3 → 3 Bandits`, both traced back to the real `roll_on_table` call).
+    - `touches()`/undo: covered by the Accept & Place check above — `placeEncounterTouches()`
+      declares correctly, `undoLast(1)` worked.
+  - **Median latency: 6562ms across 5 samples (6854, 6107, 5572, 6723, 6562), every single one
+    above the 5000ms kill criterion in both 07-card.md's Done-when list and §9's own table.**
+    Measured via the real `latency_ms.total` the module itself computes
+    (`Date.now() - lastTrigger.ts` at proposal-queue time, `panel.js`), not estimated. §9's own
+    remedy for a latency miss is explicit: "cut an orchestration hop. It is not the hardware" —
+    pointing at the two-stage `runEncounterFlow()` (`20_resolve` then `30_scene`, two full model
+    round trips) the M7 session's own decision log already flagged as a latency cost when it was
+    chosen over folding everything into one stage. **Not fixed this session** — this is a §9
+    finding to weigh across the four-session evaluation window the spec calls for, not a bug to
+    silently patch mid-measurement.
+  - **`propose_encounter` tool-call reliability: real, but intermittent, not the median case.**
+    Across roughly 10 live trigger fires this session (before and after the Thornwood
+    pack-linking fix below), one produced a genuinely broken card: **8 `propose_encounter` calls
+    in a single run** (hitting `MAX_TOOL_ITERATIONS` exactly), `creatures: []` on all 8, and
+    literal Hermes-style `<parameter=X>...</parameter>` tool-call syntax leaked into the `beats`/
+    `hook` text — diagnosed live by adding temporary `console.error` instrumentation to
+    `stageRunner.js`'s loop (removed after use, same throwaway-diagnostic discipline as the M6
+    session's `debug-resolve*.mjs` scripts), which showed the raw `assistantMessage` per
+    iteration. The remaining ~9 samples were clean single-call runs, though a couple of the
+    "clean" ones still carried a wrong `packId`/`actorId` (e.g. `packId: "RollTable.wrPvaOz83tmEmodd"` —
+    the table's own id, not a compendium collection). Given the small sample and the qualitative
+    clarity (this is real, not zero-rate, but nowhere near the every-run failure roll_on_table's
+    "doesn't know when to stop" bug was before its 2026-08-13 harness fix), **not chased to a
+    precise statistic this session** — same call the M6 session made about `roll_on_table`'s
+    validity numbers before the harness fix was found. Left as an open, real finding for whoever
+    picks up the §9 model-tier discussion.
+  - **Thornwood table re-authored as pack-linked, closing the gap the M7 build session left
+    open.** `game.tables`'s "Thornwood Road Encounters" table had 5 plain-text rows (`[[2d4]] Wolf
+    Pack`, `[[1d4]] Bandits`, `[[1d6]] Wild Boars`, `[[1]] Wounded Traveller`, `Nothing of note`)
+    with no `documentUuid` on any result — confirmed live via `table.results.contents.map(r =>
+    r.toObject())` before touching anything. Linked the four creature/NPC rows to real dnd5e
+    core-compendium Actors (`Wolf`, `Bandit`, `Boar`, `Commoner`) via
+    `table.updateEmbeddedDocuments("TableResult", [{ _id, type: "document", documentUuid }])` —
+    `CONST.TABLE_RESULT_TYPES` in this v14 build is `{ TEXT: "text", DOCUMENT: "document" }`, no
+    `"pack"` variant, confirming `encounter.js`'s own comment that the older
+    `documentCollection`/`documentId` split no longer exists. "Nothing of note" left as plain
+    text — correctly, it has no creature to link. **This directly fixed the `packId`/`actorId`
+    hallucination this session's own diagnostic run first surfaced**: before the fix, every
+    `propose_encounter` call had either an empty `creatures[]` or a fabricated `actorId` (e.g.
+    `"1d6"`, a dice formula, not an id); after, `packId`/`actorId` correctly matched the real
+    compendium (`dnd5e.actors24` / `mmBandit00000000`) in every inspected sample bar the one
+    still-wrong case noted above.
+  - **Local infra**: `gm-delegate-agent`'s WS server (port 8765) was not running at session
+    start — started via `npm start`, backgrounded. `llama-server` (port 8080) was already up and
+    healthy from a prior session, unchanged this session.
+  - **After the Done-when checklist passed, ran a short simulated GM session (user's own request:
+    "can you run a short session as a GM using playwright?") — five trigger→card cycles with
+    realistic mixed GM judgment, not just mechanical clicking. Found a second real bug.**
+    - Round 1: card claimed "1 Bandit" but its own beats said "two figures emerge" — a real GM
+      would catch that inconsistency. Edited to fix it rather than accepting blindly.
+    - Round 2 ("the party makes camp for the night in the Thornwood"): produced no card at all.
+      `20_resolve` called `list_roll_tables` twice (once with a bad filter, self-corrected to an
+      empty one) and then stopped without ever calling `roll_on_table` or `propose_encounter`.
+      Confirmed this was a clean completion, not a hang — `llama-server`'s `/slots` endpoint
+      showed `is_processing: false`. Read as the model correctly declining to force an encounter
+      for a trigger that isn't really a travel/road moment, not a bug — but worth another look if
+      it turns out the GM *did* want a check here and the model is being too conservative.
+    - Round 3 ("continues down the Thornwood road at dusk"): rolled "Nothing of note" —
+      `creatures: []` correctly, decent atmospheric beats, no hallucinated monster. Accepted.
+      Confirmed **Accept & Place with zero creatures doesn't crash** (`createEmbeddedDocuments`
+      with an empty array is a clean no-op) — a real edge case the Done-when checklist's own
+      samples hadn't happened to hit.
+    - Round 4: another `packId`/`actorId` hallucination (`packId: "wrPvaOz83tmEmodd"`, `actorId:
+      "[[1d4]] Bandits"` — the row's own display text, not an id). Clicked Accept & Place
+      deliberately to see how the failure path behaves for a real GM, not just to get a working
+      card. **Found it: `interceptor.js`'s `execute()` correctly returned `{status: "REJECTED",
+      reason: "EXEC_FAILED: place_encounter: no pack wrPvaOz83tmEmodd"}` — but `panel.js`'s
+      `acceptProposal()` never checked `outcome.status` before logging `gm_action: "accept"` and
+      dequeuing the card.** Net effect: the card silently vanishes from the panel, no tokens are
+      placed, the GM gets zero feedback that anything went wrong, and the §6 card log — the
+      dataset §9's kill criteria are computed from — records a **false positive accept** for
+      content that was never actually used. This is worse than a cosmetic bug: it directly
+      corrupts the training signal 07-card.md calls "the most valuable thing this entire
+      prototype produces."
+      - **Fixed, with the user's explicit sign-off** ("fix it now"): `acceptProposal()` and
+        `confirmEdit()` (`scripts/panel.js`) now check `outcome.status !== "EXECUTED"` before
+        logging. On failure: `ui.notifications.error(...)` tells the GM directly (this project's
+        first use of that API — nothing before M7 needed to surface an error to the GM mid-flow),
+        the log entry still honestly records `gm_action: "accept"`/`"edit"` (that *was* the GM's
+        real action) but now also carries `rejected: { reason, action: "place_encounter" }` —
+        reusing `log-entry.schema.json`'s existing `rejected` field (documented as "present when
+        the Interceptor refused," here extended to cover "the executor failed after acceptance"
+        rather than adding a new schema field or `gm_action` enum value, which would need
+        proposing per `AGENTS.md`/§10, not just applying) — and the card is **not** dequeued, so
+        the GM can Reroll or Skip it explicitly instead of it disappearing.
+      - Two new tests (`tests/panel.test.js`): accept-failure and edit-failure paths, both
+        asserting the card stays queued, the proposal isn't consumed, `ui.notifications.error`
+        fires, and `rejected` is populated correctly. `tests/setup.js` gained a minimal
+        `globalThis.ui.notifications` mock (`error`/`warn`/`info` spies) — nothing before this
+        needed `ui` to exist under vitest. **158/158 module tests pass.**
+      - Shipped as **v0.7.2**, live-verified: re-triggered until another bad-packId card
+        appeared, clicked Accept & Place, confirmed the error notification fired, `rejected` was
+        populated in the card log, and the card stayed queued instead of vanishing.
+    - Round 5 was folded into the v0.7.2 fix verification above rather than run separately.
+    - **Tentative accept-without-edit tally from this simulated session** (not a real §9
+      measurement — five rounds from one session, deliberately including adversarial clicks on
+      known-bad cards, not a blind sample): round 1 edit, round 3 accept, round 4 a caught
+      failure (not a content judgment at all). Too small and too deliberately stress-tested to
+      read as a §9 data point — flagged so a future session doesn't mistake it for one.
+  - **Next session:** M7 is done. Per 07-card.md's own instruction, this was the last milestone
+    of the prototype — the next four sessions should be spent using it, not building on it, then
+    §9's three thresholds (accept-without-edit rate >50%, median latency <5s, tool-call validity
+    >95%) get read honestly. Latency is already known to be failing; watch whether it's a hard
+    architectural cost (two model round trips) or something a smaller prompt/context fixes.
+    `propose_encounter`'s reliability is worth a larger-sample pass if it keeps surfacing during
+    real use, same as `roll_on_table`'s did. Round 2's "no card produced" behavior is worth
+    watching too — confirm it's genuinely correct restraint and not the model quietly giving up.
 
 ## Known forward references in the spec
 

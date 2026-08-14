@@ -73,6 +73,10 @@ globalThis.canvas = {
 
 globalThis.fromUuid = vi.fn(async () => null);
 
+// panel.js's failed-placement path (M7 session 8) notifies the GM via
+// ui.notifications.error rather than failing silently.
+globalThis.ui = { notifications: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } };
+
 // on()/callAll() actually dispatch (a plain vi.fn() spy can't exercise
 // eventbus.js's registerHooks(), which needs to call back into real
 // handlers). once() stays a spy — nothing under test relies on init/ready
