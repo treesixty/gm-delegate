@@ -1,17 +1,17 @@
 # Status
 
-**Updated:** 2026-08-12 (continued — session 5)
+**Updated:** 2026-08-13 (continued — session 6)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M5 — Agent server + ModelClient. Built and live-verified 2026-08-12.** Both halves stand: `scripts/socket.js` (module-side WS client, corrected role per §5.6) and `gm-delegate-agent/` (its own Node package: Orchestrator, ModelClient, WS server). Full protocol proven correct via three independent paths (unit tests, an in-process real-socket smoke test, live `handleIntent()` calls against a real Actor). **One open gap, not a code defect as far as this session could tell:** the WS opening handshake between the live browser and a locally-run agent process does not complete on this machine, despite proven TCP-level reachability — see the session-5 decision log entry for what to check next session. |
+| Current milestone | **M5a — ICM walk test. PASSED 2026-08-13 (with one caveat).** The empirical question §5.5 posed — can the local quantized model orient and act from `gm-session/` files alone, no code-injected context — came back yes for `10_watch` and `20_resolve`; `30_scene` passes shape/length but doesn't reliably carry roll/dice provenance verbatim. See the session-6 decision log entry for the full per-stage breakdown and what this means for M6. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1}.js` (test-m1 is throwaway, delete in M7). New: `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index}.js`, own `package.json`/`tests/`). |
 | Test harness | Module: `npm install && npm test` — **111/111 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **16/16 passing**. (node v24.14.1, npm 11.11.0.) |
-| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5 live-verified (M5 partially — see gap above). M2 still vitest-only (no DOM). |
+| Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5 all live-verified. M2 still vitest-only (no DOM). |
 | Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.5.0** / GitHub release `v0.5.0` installed and live-verified on this pod. |
-| Model in use | None yet. Planned: Qwen3.5 9B @ Q4_K_M. |
+| Model in use | **Qwen3.5 9B Q4_K_M, serving locally.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend, installed via `winget install ggml.llamacpp`) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Smoke-tested via `/v1/chat/completions`: steady-state ~71 tok/s prompt eval, ~78 tok/s generation (first request after load is much slower — one-time Vulkan shader-compile cost, not representative). It's a thinking model (emits `reasoning_content`); M5a/M6 will need to account for that in output parsing. **Embeddings (`nomic-embed-text` via Ollama, `config.yaml`'s other endpoint) is still not set up** — out of scope for what was asked this session, noted as a remaining gap before anything that needs embeddings. |
 
 ## Milestones
 
@@ -21,9 +21,9 @@
 | 2 | PolicyStore + Interceptor | **DONE — Done-when checklist passed 2026-08-11 (vitest only, no DOM involved)** |
 | 3 | Panel | **DONE — live-Foundry Done-when checklist run 2026-08-12 across two sessions; 6 bugs found and fixed (v0.2.1–v0.2.5), all fixes live-confirmed. Dead combat-tracker context menu fixed (v0.3.2–v0.3.3). Last remaining gap, `voiceNpc()`'s TokenHUD wiring, closed this session (v0.4.0), live-confirmed.** |
 | 4 | EventBus | **DONE — live-Foundry Done-when checklist passed 2026-08-12. `combat.turn` source swapped `updateCombat` → `combatStart`/`combatRound`/`combatTurn` this session (v0.4.0), live-confirmed no open items remain.** |
-| 5 | Agent server + ModelClient | **Built and mostly live-verified 2026-08-12 (v0.5.0).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test. Live: module loads/connects-out logic confirmed sound, TCP reachability confirmed, `handleIntent()` round-trips (EXECUTED/REJECTED/undo) confirmed live against a real Actor. **Not yet confirmed: an actual completed WS handshake between the live browser and a locally-run agent on this machine** — see decision log for the suspected cause and what to check next session before assuming it's a code bug. |
-| 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | not started |
-| 6 | EncounterAgent, 5 tools | not started |
+| 5 | Agent server + ModelClient | **DONE — fully live-verified 2026-08-13 (v0.5.0, no code changes).** All 5 Done-when items proven correct via unit tests + an in-process real-socket smoke test + live handling. The session-5 WS handshake gap is closed: a real browser opened the handshake in ~12ms and completed a full INTENT→RESULT round trip through the actual agent process, over the real wire, executing against a real Actor. **Root cause of the session-5 failure is undetermined** — see decision log; two leading candidates were ruled out by direct A/B test, not confirmed as the fix. |
+| 5a | ICM walk test (§5.5) — gates whether StageRunner replaces the Orchestrator | **DONE — PASSED 2026-08-13, with a caveat on `30_scene` provenance. See decision log.** |
+| 6 | EncounterAgent, 5 tools | not started — unblocked, model now serving locally |
 | 7 | The card, with Edit | not started |
 | 8–10 | Contingent. Do not plan them yet. | — |
 
@@ -850,6 +850,186 @@ why — otherwise a future session will relitigate it again.)*
       path.** Low priority given the equivalent behavior (`send()` no-ops when the socket isn't
       `OPEN`) is directly unit-tested and the live handshake gap above would have blocked this
       from reaching the wire anyway this session.
+
+- **2026-08-13 (continued, session 6)** — **Closed the session-5 WS handshake gap functionally,
+  but the root cause is undetermined.** Pod `d90mhv7i5kvqyg` (stopped at the end of session 5)
+  needed **33 failed `start-pod` attempts** before succeeding — 9 instant retries, then 20 more
+  spaced a real 60s apart via a session `/loop` cron job, then 24 more into a second 60-attempt
+  loop — all identical "not enough free GPUs on the host machine." This is the same recurring
+  failure logged in three prior sessions; this time it cleared on retry alone (no terminate +
+  recreate needed), just took longer than before. Confirmed the resumed container was genuinely
+  live via `get-pod`'s `runtime.uptime`/`runtime.ports`, not just API status `RUNNING` — the prior
+  "RUNNING but dead container" landmine did not recur.
+  - **Session-5's suspected cause (a VPN/mesh client, specifically Tailscale, intercepting
+    loopback traffic) is ruled out.** Stopped Tailscale (`tailscale down`), and the WS handshake
+    completed in ~12ms — looked like confirmation at first. But the user separately flagged that a
+    Chrome "allow access to devices on your network" popup had been approved during that same
+    test, which is a confound: Chrome's **Local Network Access** permission gates HTTPS pages from
+    reaching private/loopback addresses and could independently explain the fix. Restoring
+    Tailscale (`tailscale up`) and re-running the identical raw-handshake test still succeeded in
+    ~10.8ms — if Tailscale interception were the cause, restoring it should have broken the
+    handshake again. It didn't. **Tailscale was very likely coincidental, not causal.**
+  - **The Chrome Local Network Access permission is also ruled out.** Navigated to
+    `chrome://settings/content/siteDetails?site=...` for the pod's origin and explicitly set
+    **Local network → Block** (confirmed applied via a fresh settings-page snapshot showing
+    `Block` selected, not just clicked). Reloaded the Foundry page and re-ran the raw handshake
+    test: still succeeded, ~14.3ms. A real WebSocket connection to `127.0.0.1` is apparently not
+    gated by this content setting in Chrome 151 — it most likely governs `fetch`/`XHR`/subresource
+    loads (and possibly mDNS-based local device discovery) rather than a script-constructed
+    `WebSocket`. Reset the setting back to "Ask (default)" afterward to leave the profile clean.
+  - **Three more candidates checked and also ruled out or found inapplicable**, in the interest of
+    a real root cause rather than stopping at "not X, not Y": PIA VPN's interface sits at a
+    `169.254.x.x` (APIPA/link-local) address, i.e. installed but not actually tunneling, so
+    unlikely to be intercepting anything now or during the failing session. Windows Firewall has
+    no rule at all referencing `node.exe`, ruling out an app-level block (also consistent with
+    session 5's own finding that TCP reachability was never actually blocked — a `REFUSED` reply
+    requires the packet to arrive). Windows Defender real-time protection is off and no AV product
+    is registered in Security Center, ruling out AV/NIS packet inspection. Chrome itself
+    (151.0.7922.137) was installed **2026-08-11**, i.e. already in place *before* the session-5
+    failure on 2026-08-12 — not a version change between sessions. Playwright's own
+    connection-lock files additionally confirm both sessions launched the **same installed Chrome
+    binary against the same persistent `userDataDir`** — not a different browser identity either.
+  - **Root cause: undetermined.** Every concrete, testable hypothesis available this session was
+    checked and eliminated. One untested candidate remains, noted for whoever picks this up if it
+    recurs: **timing/ordering** — session 5's agent process may have been started only after the
+    Foundry page had already been open for a while with `socket.js` deep into its exponential
+    backoff (up to the 10s ceiling), whereas this session started the agent *before* navigating to
+    the page. Reproducing that ordering deliberately (open the page first, wait, start the agent
+    later, then watch the very next reconnect attempt) is a plausible next test but wasn't run this
+    session — do not assume it's the answer, it is genuinely untested.
+  - **Functionally, M5 is now fully proven live, independent of the RCA gap above.** Sequence:
+    started the local agent (`gm-delegate-agent`, `npm start`, confirmed listening on
+    `ws://127.0.0.1:8765`), logged into the `delegate-test` world as GM via Playwright (EULA
+    re-acceptance, admin key `Onward-Worst-Subpanel6-Perfectly-Parasitic`, and the GM user
+    password — **user-chosen value `waterisgood`, recorded here because it's a throwaway dev-world
+    credential, same convention as the admin key** — all had to be re-supplied, matching the
+    pattern from every prior stop/start cycle). With the module connected, drove a real end-to-end
+    intent from the **agent's own stdin command** (not the module-side console, unlike every prior
+    session's live check) — `rename Actor.nV7FYLKL5lqaaBVB` — using a small PowerShell-controlled
+    child process (`System.Diagnostics.Process` with redirected stdin/stdout/stderr) rather than a
+    bash-side FIFO, because **`mkfifo` does not work reliably between MSYS2 bash and a
+    native-Windows `node.exe`** — the first two attempts hung indefinitely with no data ever
+    reaching Node's `stdin.on("data", ...)` handler; noting this so a future session doesn't
+    re-attempt the FIFO approach. Result: `RESULT: { renamed: 'Actor.nV7FYLKL5lqaaBVB', to:
+    'Renamed by gm-delegate-agent' }`, printed by the agent process itself, having gone out over
+    the real wire, through the real browser's `socket.js`, into `handleIntent()`, executed against
+    the real Actor, and back. World cleaned up immediately after via `api.undoLast(1)` from the
+    module console, confirmed via the journal entry's `reverted: true` and the actor's name
+    reverting.
+  - **Tailscale and the Chrome "Local network" setting were both restored to their original state**
+    (Tailscale `up`, permission back to "Ask (default)") before ending the investigation.
+  - **Next session:** M5 is DONE, no open items. Next per the milestone table is **M5a (the ICM
+    walk test, §5.5)** — gates whether StageRunner replaces the Orchestrator — or M6
+    (EncounterAgent, 5 tools), GM's call which first, same as the M5-vs-TokenHUD choice offered
+    after session 3. If the WS handshake ever times out again on this machine, try the untested
+    timing/ordering reproduction above before re-suspecting Tailscale or Chrome permissions —
+    both are now ruled out with direct evidence, re-litigating them without new information would
+    be repeating this session's work for nothing.
+
+- **2026-08-13 (continued, session 6)** — **Stood up the local model, closing the "Model in use:
+  None yet" gap that was blocking both M5a and M6.** Both of those milestones need a model
+  actually serving; neither one existed until this point in the session.
+  - **Clarified an architecture point the user's question surfaced: the model runs on this
+    Windows machine, not the RunPod pod.** `config.yaml`'s `localhost:8080`/`localhost:11434` are
+    from the perspective of the **agent process**, and `gm-delegate-agent` has only ever been run
+    locally (confirmed this session — that's literally where `npm start` was executed for the M5
+    live tests above). The RunPod pod exists solely to host Foundry; it also has no working way to
+    install a second service on it anyway (web terminal and S3 API both confirmed broken in prior
+    sessions, per felddy's image having a custom single-purpose entrypoint).
+  - **Installed `llama-server` via `winget install --id ggml.llamacpp`** (version `b10375`, the
+    Vulkan-backend build — cross-vendor GPU acceleration, not CUDA-specific). Binary lives at
+    `%LOCALAPPDATA%\Microsoft\WinGet\Packages\ggml.llamacpp_...\llama-server.exe`; the installer
+    added it to PATH but that needs a shell restart to take effect, so this session invoked it by
+    full path.
+  - **Downloaded `Qwen3.5-9B-Q4_K_M.gguf` (5.68GB) from `unsloth/Qwen3.5-9B-GGUF`** on Hugging
+    Face, to `~/models/`. Confirmed this is a real, current release (not confabulated from stale
+    training data) via a live web search before downloading.
+  - **This machine's hardware, checked before committing to the download:** RTX 3080 Ti, 12GB VRAM
+    (9.7GB free at the time), 64GB system RAM, 241GB free disk. Comfortably sufficient for a 9B
+    Q4_K_M model.
+  - **`llama-server -m ... --host 127.0.0.1 --port 8080 -ngl 999 -c 8192`**, running in the
+    background. `--list-devices` confirmed Vulkan sees the 3080 Ti before starting. Smoke-tested
+    via `/v1/chat/completions`: the **first** request measured a misleadingly slow ~1.5 tok/s
+    prompt-eval — that's Vulkan's one-time shader-compilation cost on first use, not steady-state
+    performance. A second request confirmed the real number: **~71 tok/s prompt eval, ~78 tok/s
+    generation**, GPU offload genuinely working.
+  - **This is a thinking model** — responses include a `reasoning_content` field separate from
+    `content`, and a low `max_tokens` cap truncates mid-reasoning before any `content` is emitted
+    (observed directly in the first smoke test). M5a/M6 will need to either budget enough tokens
+    to get past the reasoning phase or otherwise account for this in whatever parses model output.
+    Not yet handled anywhere in code — noted for whoever builds M5a/M6's calling code.
+  - **Left running for the next session to use immediately.** `llama-server` is a long-lived
+    background process on this machine; it does not need RunPod-style start/stop management.
+  - **Deliberately not done, out of scope for what was asked:** `config.yaml`'s **embeddings**
+    endpoint (`nomic-embed-text` via Ollama, `localhost:11434`) has no server behind it yet, and
+    Ollama isn't installed on this machine. The user asked specifically for `llama-server`; adding
+    a second whole service unprompted would have been scope creep. Flagging this explicitly so a
+    future session doesn't assume embeddings work because the chat model does — anything that
+    calls the embeddings endpoint will fail until this is set up.
+
+- **2026-08-13 (continued, session 6)** — **Ran the M5a ICM walk test (§5.5) against the local
+  model, per the 2026-07-13 decision that gated it: "Conditional on the M5a walk test passing on
+  the local model — ICM was validated on Opus 4.6, not a quantized 9B." Result: PASS, with one
+  caveat on `30_scene`.** Built a throwaway harness (`gm-delegate-agent/walk-test.mjs`, **deleted
+  after use** per the briefing's "build nothing past the test") rather than a real StageRunner —
+  a small tool-call loop against `llama-server` directly, not through `ModelClient` (no code
+  changes to the module or agent package this session).
+  - **Followed the briefing's "no pre-loaded catalog files" rule literally.** Each stage's system
+    prompt was exactly `IDENTITY.md` + root `CONTEXT.md` + that one stage's `CONTEXT.md`, nothing
+    else — the model was never told `_npcs/innkeeper.md` exists or what it contains. It had to
+    find that out itself, via `read_file`/`list_files` tools scoped to `gm-session/` (a filesystem
+    sandbox with path-escape checks, not full disk access). `20_resolve` additionally got
+    `list_roll_tables`/`roll_on_table` from the real `contracts/tools.json` (filtered to those two
+    — not the full 5-tool surface, since 20_resolve's own contract only names mechanical-resolution
+    tools). `roll_on_table`'s handler in the harness returned a synthetic Foundry-shaped result
+    (`{roll:14, drawn:"Wolf Pack (2d4)", dice:"2d4=5", quantity:5}`) — the walk test measures
+    whether the *model* calls a tool instead of fabricating a number, not whether real Foundry
+    execution works, which M5 already proved separately.
+  - **`10_watch`, innkeeper case: PASS.** Window text ("the innkeeper looks up from wiping the
+    bar...") plus `foundry: selected=Actor.INNKEEPER01, scene=Kettle & Bough`. The model listed
+    `_npcs/`, read `innkeeper.md`, and correctly output `link: _npcs/innkeeper.md, confidence:
+    high` with a sound one-line `why`. Matches `10_watch/CONTEXT.md`'s output shape.
+  - **`10_watch`, chatter case: PASS.** Window text was players talking about their real-life jobs
+    (matches nothing in the catalog), `foundry: selected=none`. Correctly output `link: none` with
+    no tool calls needed — didn't hallucinate a link where none existed.
+  - **`20_resolve`: PASS, but only after a harness fix.** First attempt: the model correctly called
+    `list_roll_tables` then `roll_on_table` with the right `tableId` — **never fabricated a
+    number**, the one thing this stage must never do — but then looped trying to `read_file` its
+    own would-be output (`20_resolve/out/result.md`, which doesn't exist) three times before
+    hitting the harness's iteration cap with no final answer. Root cause: the harness gave it
+    `read_file`/`list_files` but no `write_file`, and never told it that its final chat message
+    *is* the deliverable — an interface ambiguity in the throwaway harness, not a task-content leak
+    (nothing about the scenario or catalog was changed). Added one line to the system preamble —
+    "your final chat response is taken verbatim as this stage's output, you have no write tool and
+    do not need one" — and reran. Second attempt completed cleanly in 3 iterations, reporting the
+    tool result verbatim in the exact `tool: / args: / result:` shape from `20_resolve/CONTEXT.md`.
+  - **`30_scene`: PASS on shape, soft-fail on provenance.** Given the resolved mechanic verbatim
+    (`roll: 14, drawn: "Wolf Pack (2d4)", dice: "2d4=5", quantity: 5`), the model produced a
+    correctly-shaped card both times it was run (across the pre- and post-harness-fix runs, for
+    two independent samples): a `CREATURES / SUBJECT` line, 4 beats (sound, movement, posture,
+    detail — not prose), a `Hook:` line, well under 60 words both times (~29 and ~36 words). **But
+    neither run carried the raw `roll: 14` or literal `dice: "2d4=5"` string into the card** —
+    the model paraphrased the mechanic into flavor (e.g. "Wolf Pack, 5 wolves") rather than
+    preserving the provenance fields verbatim, despite `30_scene/CONTEXT.md` explicitly saying
+    "carry its roll / drawn / dice through unchanged." This is exactly the failure mode
+    `validate.py` is specced to catch ("if a `20_resolve` result exists its provenance fields are
+    carried verbatim... not rounded" — no `validate.py` exists yet, this was graded by hand).
+  - **What this decides, per the 2026-07-13 conditional gate:** the walk test's overall result is
+    a pass — `10_watch` and `20_resolve` both demonstrated real orientation-from-files-alone and
+    held their hard lines with zero hand-holding. **StageRunner replacing the Orchestrator is
+    empirically viable on this quantized 9B**, not just on a frontier model. The `30_scene`
+    provenance gap is not a reason to reject the architecture — the fix is enforcement
+    (`validate.py` rejecting a card that drops provenance and forcing a retry or GM-visible flag),
+    exactly the "enforcement stays in code, a gate in a prompt is not a gate" principle §5.5 and
+    the 2026-07-13 decision already established. `validate.py` for all three stages does not exist
+    yet and is real M6-adjacent work, not covered by this milestone.
+  - **Not tested this session, flagged for whoever builds M6/the real StageRunner:** multi-sample
+    reliability (each stage was run once or twice, not enough for a real pass-rate number), the
+    `00_dm` escalation contract (never-delegate.md avoidance — no scenario in this session actually
+    touched escalate-worthy content), and the thinking-model token budget in practice (this
+    session's harness used `max_tokens: 2048`, well above `config.yaml`'s `200` for `encounter` —
+    that config value needs raising before M6 wires `ModelClient` for real, or every real call will
+    truncate mid-reasoning the way the very first smoke test did).
 
 ## Known forward references in the spec
 
