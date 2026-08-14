@@ -1,12 +1,12 @@
 # Status
 
-**Updated:** 2026-08-14 (session 8)
+**Updated:** 2026-08-14 (session 10)
 
 ## Where we are
 
 | | |
 |---|---|
-| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion). |
+| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a real-Foundry validity number (100%, 12/12) and a corrected root cause (spec assumed 40 generated tokens, actual is ~380) plus a ranked fix plan from an Opus planning pass; see decision log). |
 | Code written | Session 7 built M7 end to end (see that entry below for the full file list). Session 8 (this one) added: `scripts/executors/encounter.js`'s `placeEncounter()` fix (interactive `placeTokens()` → programmatic `createEmbeddedDocuments()`), `tests/setup.js`'s matching mock update, `module.json` → **0.7.1**. |
 | Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6, and now M7 are live-verified. Only M2 remains vitest-only (by design — no DOM involved). |
@@ -1738,6 +1738,148 @@ why — otherwise a future session will relitigate it again.)*
     bad packId/actorId, silent no-card), not one. Round 2's "no card produced" behavior is worth
     watching too — confirm it's genuinely correct restraint for ambiguous triggers and not the
     model quietly giving up on triggers that should work.
+
+- **2026-08-14 (session 9)** — **Investigated the M7 latency miss and `propose_encounter`
+  reliability, both flagged open in session 8. No code changed — this is diagnosis, per
+  the user's ask.** Used a throwaway diagnostic script
+  (`gm-delegate-agent/debug-latency.mjs`, same disposal convention as M6's
+  `debug-resolve*.mjs` — written, run, deleted, not committed) that calls `stageRunner.js`'s
+  real `runStage()` twice, exactly as `index.js`'s `runEncounterFlow()` does, but against a
+  **fake orchestrator whose `sendIntent()` rejects instantly** ("no module connected"),
+  bypassing Foundry and the RunPod pod entirely. `llama-server` (port 8080) was already up
+  locally from a prior session; no pod was started for this.
+  - **Latency: confirmed architectural, not hardware/network.** 11 local runs, zero real
+    Foundry round trips in any of them, **median total flow ~6.3–6.7s** — matching session
+    8's live 6562ms median almost exactly, with no dice roll, no RunPod hop, no real tool
+    execution anywhere in the loop. This directly confirms §9's own remedy ("cut an
+    orchestration hop. It is not the hardware") rather than leaving it a guess: the cost is
+    the sequential LLM completion count (up to `MAX_TOOL_ITERATIONS=8` per stage, two
+    stages), not network/hardware latency to the pod. **Not fixed this session** — diagnosis
+    only, per the ask.
+    - Secondary, unconfirmed observation: individual completion latency (400–4100ms) did
+      not shrink as a stage's message history grew, which prefix-cache reuse would predict.
+      `llama-server`'s `/slots` showed 2 parallel slots — alternating slots would evict the
+      cache between calls. Flagged as a hypothesis for whoever chases this further, not
+      verified.
+  - **Found a 4th distinct failure mode, upstream of `propose_encounter` itself.** One run
+    hit `20_resolve`'s `MAX_TOOL_ITERATIONS=8` (`timedOut: true`). Its tool log shows the
+    model did **not** retry `roll_on_table`/`list_roll_tables` — it honored "do not retry"
+    on those specific tools. Instead, after the tool error, it spent all 8 iterations on
+    `list_files`/`read_file` (`10_watch/out/`, `_world/locations/`,
+    `_world/never-delegate.md`, the not-yet-wired `10_watch/out/window.md`), chasing
+    grounding that `10_watch` doesn't produce yet (§7.3 is v2 — session 8's own
+    `runEncounterFlow` comment already says so), and never produced final text. In
+    production this is `index.js`'s `"20_resolve did not produce a result"` console error —
+    a silent no-card, same visible symptom as the 3 modes session 8 logged, but a different
+    mechanism (fs-tool wandering after a domain-tool error, not a `propose_encounter`
+    malfunction, and it happens in `20_resolve` before `30_scene` is ever reached). Did not
+    reproduce on 13 further local attempts — intermittent, consistent with session 8's own
+    "not the median case" read on the other three modes. Not chased to a fix this session.
+  - **Caveat on the diagnostic script's own numbers, for whoever reruns this**: the script
+    always ran both stages back to back regardless of `20_resolve`'s outcome, unlike the
+    real `runEncounterFlow()`, which returns early and never calls `30_scene` when
+    `20_resolve` times out or produces no content (`index.js`, the
+    `resolveResult.timedOut || !resolveResult.content` check). The one run that hit the
+    4th failure mode above therefore shows a `30_scene` total, but a real trigger hitting
+    the same 20_resolve failure would stop at ~5.1s, not the 13s the script printed.
+  - **Next session, if this gets picked up:** the latency fix session 8's §9 pointed at
+    (folding `20_resolve`/`30_scene` into one round trip, or capping iterations lower than
+    8) hasn't been attempted — this session only confirmed where the cost lives. The new
+    4th failure mode is worth a larger local sample (no pod needed — this whole
+    investigation ran off `llama-server` alone) before deciding whether it's worth a prompt
+    fix in `20_resolve/CONTEXT.md` telling the model to stop and report on any domain-tool
+    error rather than explore the workspace.
+
+- **2026-08-14 (session 10)** — **Got a real-Foundry tool-call-validity number, and got a
+  corrected root cause for the latency miss via an Opus-backed planning agent.** No code
+  shipped this session — one infra recovery, one live measurement, one piece of
+  architectural analysis.
+  - **RunPod GPU-unavailability recovery, a new finding beyond "retry or terminate+recreate":**
+    `start-pod` on `d90mhv7i5kvqyg` failed **34 consecutive times** ("not enough free GPUs on
+    the host machine," retried across three ~12-attempt windows). The RunPod **web dashboard**
+    (not available via the MCP tools — confirmed by checking the v2 OpenAPI spec directly, no
+    migration/compute-type-change endpoint exists there) surfaces a dedicated "Your Pod's GPUs
+    are no longer available" dialog with three options: automatic migration to an identical-GPU
+    pod, **"Start Pod using CPUs,"** or wait. Chose the CPU option — Foundry needs no GPU at
+    all. **It worked**: same pod ID, same `/data` mount, `gpu.count: 0`, cost dropped from
+    $0.74/hr to $0.37/hr. This contradicts nothing from the 2026-08-11 finding that *creating a
+    new* CPU pod can't get persistent storage through the tools available then — this is
+    *resuming an existing* pod (storage already attached) on different compute, a different
+    code path. **Worth trying this dashboard option before terminate+recreate next time a pod
+    gets stuck on GPU availability**, since it's non-destructive and free of the license/admin-
+    key re-entry cost. One side effect: the host swap re-triggered Foundry's license
+    verification (EULA re-accept, admin-key re-entry) even though `/data` never moved — matches
+    the already-logged 2026-08-11 pattern of a host change tripping license re-verification.
+  - **rsync-between-pods, investigated and ruled out for this situation, not because it doesn't
+    exist.** User pointed at `docs.runpod.io/storage/network-volumes`'s rsync-over-SSH section,
+    which is real (`runpodctl send/receive` or manual SSH+rsync) — but it requires **both pods
+    running** with shell access inside each. Moot while the source pod won't start at all, and
+    separately: this pod's image (`ghcr.io/felddy/foundryvtt:14`) was never given `sshPublicKey`
+    at creation, so the `PUBLIC_KEY`→sshd convention `create-pod`'s own docs describe likely
+    never applied here (matches the already-logged 2026-08-11 finding that the web terminal
+    fails on this image's custom entrypoint). Untested, not confirmed broken — worth trying if a
+    future stuck-pod session gets the pod running again.
+  - **`resolve 12` against real live Foundry (not the session-9 fake-orchestrator version):
+    12/12 completed, zero timeouts, 12/12 valid `roll_on_table` calls, 12/12 valid
+    `propose_encounter` calls — 100% tool-call validity**, clearing §9's >95% target outright.
+    Sharp contrast with M6's 75%-on-8-calls and session 8's "~10% catastrophic-loop rate."
+    Most likely explanation: session 8's Thornwood pack-linking fix already killed the dominant
+    failure mode (bad `packId`/`actorId`), and the two rarer modes (catastrophic loop, silent
+    no-card) just didn't land in 12 samples — **treat as encouraging, not conclusive**, same
+    caution the project has applied to every validity number so far. Median latency **~7800ms**
+    (sorted: 6771–15733ms across 12 runs), still failing the <5s criterion. Ran via a throwaway
+    script (`gm-delegate-agent/resolve-n-live.mjs`, real `Orchestrator`/`startServer`, no fake —
+    written, run, deleted, same disposal convention as every prior diagnostic here) after
+    killing session 9's orphaned agent process (no stdin access to a process from a prior
+    session) and letting the module's own exponential-backoff reconnect pick up the fresh one.
+  - **Latency root cause, corrected.** Dispatched an Opus-model planning agent (isolated
+    worktree, read-only — no code changes) to read the actual architecture and query the live
+    `llama-server` directly (`/props`, `/slots`, `/apply-template`, `/tokenize` — real token
+    counts, not estimates) rather than continue reasoning from session 9's local-only timing
+    alone. Its findings:
+    - **The spec's own latency budget was wrong at the premise.**
+      `docs/gm-delegate-build-spec-v1.md:1046` assumes "a 9B generating **40 tokens** ... should
+      be trivial." **A typical successful run generates ~380 tokens across 5 sequential model
+      completions** (2 in `20_resolve`, up to 3 in `30_scene` including a wasted final call —
+      see below) — 9.5× the spec's assumption. At the measured ~78 tok/s Vulkan decode rate,
+      that's ~4.2–4.9s of pure generation, before any Foundry round trip.
+    - **Two session-9 open questions closed.** Reasoning-off is genuinely in effect
+      (`/props`'s `generation_prompt` shows an empty prefilled think block — no leftover
+      overhead). Session 9's prompt-caching-broken hypothesis is **probably wrong**: a 400ms
+      call is arithmetically impossible for a ~2280-token cold prefill at any plausible rate for
+      this hardware, so within-stage caching is working; the `n_prompt_tokens_cache: 0` session
+      9 saw on `/slots` was idle slots holding unrelated stale tasks, not the encounter flow.
+      **Do not spend time on `--parallel 1` as a cache fix** — the agent's explicit
+      recommendation against session 9's own speculation.
+    - **Two new findings.** `config.yaml`'s `max_tokens: 2048` (with a comment explaining why
+      it's needed) is **never actually sent to the server** — `modelClient.js:71`'s
+      `complete()` call has no options argument, `/slots` confirms `n_predict: -1`
+      (unbounded). Latency-neutral for the median, but it's exactly the shape of session 6's
+      3-minute runaway — a real tail-risk gap, not just a stale comment. Separately,
+      `30_scene`'s loop (`stageRunner.js`'s exit-only-on-no-tool-calls shape) runs a **5th
+      completion purely to obtain `sceneResult.content`**, which nothing downstream reads
+      (`index.js` only uses `toolLog`) — `30_scene/CONTEXT.md` already says "calling
+      `propose_encounter` **is** producing your output," the code just doesn't act on that.
+    - **Ranked recommendation, reversing what the previous entry pointed at.** The Opus
+      agent's explicit advice: do **not** merge `20_resolve`/`30_scene` first, despite that
+      being what this file's own 2026-08-14 (session 9) entry flagged as the next thing to try
+      — merging is the option that trades away the per-stage tool-pruning design principle and
+      opens a new fabrication surface (proposing before rolling), so it should be the **last**
+      lever, not the first. Priority order instead: (1) swap the Vulkan llama.cpp build for a
+      CUDA build (~30 min, zero code/prompt risk, biggest single projected saving —
+      ~2000–2800ms, unverified for this specific box); (2) one small `stageRunner.js` PR
+      bundling four cheap fixes together — skip the wasted 5th `30_scene` call, drop
+      `list_files`/`read_file` from these two stages entirely (neither stage's `CONTEXT.md`
+      asks for them, and this also **kills the session-9 4th failure mode outright**, not just
+      trims latency), lower `MAX_TOOL_ITERATIONS`, and actually pass `max_tokens` through.
+      Projected combined: ~6.5s → ~3.0–3.8s local / ~4.3–5.1s live-Foundry, plausibly enough to
+      clear <5s without ever touching stage-merging. Full ranked table (10 options total, with
+      per-option latency/risk/design-tension breakdown) is in the agent's report, not
+      reproduced here in full — re-run the same investigation if this file's summary is ever in
+      doubt, the agent's methodology (query `llama-server` directly) is cheap to repeat.
+  - **Next session:** implement step 1 (CUDA build swap + per-completion instrumentation) and
+    re-measure before deciding whether step 2's `stageRunner.js` PR is even necessary. Only
+    reconsider stage-merging if both steps together still leave the median short of 5s.
 
 ## Known forward references in the spec
 
