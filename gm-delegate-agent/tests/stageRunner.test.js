@@ -21,6 +21,7 @@ beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), "gm-delegate-stagerunner-"));
   writeFileSync(join(workspace, "IDENTITY.md"), "# IDENTITY\nprompter, never a voice.");
   writeFileSync(join(workspace, "CONTEXT.md"), "# CONTEXT\nworkspace map.");
+  writeFileSync(join(workspace, "CATALOG.md"), "# CATALOG\nthe series bible lives here.");
   mkdirSync(join(workspace, "20_resolve"));
   writeFileSync(join(workspace, "20_resolve", "CONTEXT.md"), "# 20_resolve\ncall a tool, never compute.");
   mkdirSync(join(workspace, "30_scene"));
@@ -139,6 +140,20 @@ describe("runStage — the I/O contract (§5.5, the M5a-fixed harness gap)", () 
 
     const [, { tools }] = modelClient.chatComplete.mock.calls[0];
     expect(tools).toHaveLength(0);
+  });
+
+  it("includes CATALOG.md in the systemPrompt by default", async () => {
+    const modelClient = fakeModelClient([finalResponse("done")]);
+    await runStage({ stage: "20_resolve", workspace, modelClient, subagentKey: "encounter", userContent: "go" });
+    const [, { systemPrompt }] = modelClient.chatComplete.mock.calls[0];
+    expect(systemPrompt).toContain("the series bible lives here");
+  });
+
+  it("useCatalog: false drops CATALOG.md from the systemPrompt entirely", async () => {
+    const modelClient = fakeModelClient([finalResponse("done")]);
+    await runStage({ stage: "20_resolve", workspace, modelClient, subagentKey: "encounter", userContent: "go", useCatalog: false });
+    const [, { systemPrompt }] = modelClient.chatComplete.mock.calls[0];
+    expect(systemPrompt).not.toContain("the series bible lives here");
   });
 
   it("terminalTool short-circuits the loop on a successful call instead of spending an extra completion on final text", async () => {

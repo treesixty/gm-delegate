@@ -81,8 +81,11 @@ async function runEncounterFlow(text) {
     // and 20_resolve's result] alone") — dropping fsTools here also deletes
     // the session-9 4th failure mode (fs-tool wandering after a
     // domain-tool error) outright, not just latency (STATUS.md 2026-08-14
-    // session 10).
+    // session 10). useCatalog:false pairs with it: CATALOG.md is only
+    // actionable via the tools just dropped, so it's dead weight in the
+    // prompt for both of these stages either way.
     useFsTools: false,
+    useCatalog: false,
     // Typical successful run is now 2 iterations (roll_on_table, final text)
     // — one fewer than when this cap was tuned, since list_roll_tables no
     // longer costs a model round trip (see fetchRollTables above). 4
@@ -108,6 +111,7 @@ async function runEncounterFlow(text) {
     userContent: sceneContent,
     domainTools: sceneDomainTools(orchestrator),
     useFsTools: false,
+    useCatalog: false,
     // propose_encounter succeeding IS this stage's output (30_scene/CONTEXT.md);
     // stop immediately instead of spending a completion on final text nobody
     // reads (index.js/panel only ever consume sceneResult.toolLog).

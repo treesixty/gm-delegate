@@ -4,28 +4,23 @@ You are running inside a live TTRPG session workspace. This file tells you where
 everything is so you never waste turns exploring. Read `IDENTITY.md` first, then this,
 then the one stage folder you were told to run.
 
-## Two kinds of thing live here
+## Stages (numbered)
 
-**Catalog** (prefixed `_`): stable reference. Read it. Do not write to it during a
-session. This is the series bible.
-
-| Folder | What it holds | You read it when |
-|---|---|---|
-| `_world/` | setting, tone, large story goals, `locations/`, `factions.md` | grounding any stage in where/what the scene is |
-| `_world/never-delegate.md` | the GM-only list. HARD line. | always aware of it; never generate its contents |
-| `_characters/` | one file per PC: sheet ref + what that player enjoys | a beat involves or targets a PC |
-| `_npcs/` | one file per significant NPC: bio, voice, GM-only secrets, disposition | the moment is about an NPC (the watch stage tells you which) |
-| `_srd/` | your own CC-BY SRD rules corpus | a rules question. NOT the GM's paid compendium. |
-
-**Stages** (numbered): these run, per game moment, in order. Each has its own
-`CONTEXT.md` (the contract: inputs, process, output path) and an `out/` you write to.
+These run, per game moment, in order. Each has its own `CONTEXT.md` (the contract:
+inputs, process, output path) and an `out/` you write to.
 
 | Stage | Does | Reads | Writes |
 |---|---|---|---|
 | `00_dm/` | overarching contract: what may be decided vs must escalate | (nothing) | (policy, not output) |
 | `10_watch/` | link the last ~30s to ONE catalog doc, or nothing | the window handed in, catalog names | `10_watch/out/window.md` |
 | `20_resolve/` | mechanical resolution, a tool call, never a computation | the linked doc, board state | `20_resolve/out/` |
-| `30_scene/` | the prompter card the GM reads and speaks from | catalog + upstream `out/` | `30_scene/out/prompter.md` |
+| `30_scene/` | the prompter card the GM reads and speaks from | trigger text + upstream `out/` (not catalog — v1 has no live entity linking yet) | `30_scene/out/prompter.md` |
+
+Stable reference material — the "catalog" (prefixed `_`: `_world/`, `_characters/`,
+`_npcs/`, `_srd/`) — is described in `CATALOG.md`, included only for stages that can act
+on it (the ones with a `read_file`/`list_files` tool in their surface). If your prompt
+doesn't include that block, you don't have those tools either; ground yourself in the
+trigger text and board state instead of assuming catalog access.
 
 ## How a moment flows
 

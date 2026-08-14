@@ -220,10 +220,20 @@ export async function runStage({
   // gm-session/30_scene/CONTEXT.md).
   terminalTool,
   maxIterations = MAX_TOOL_ITERATIONS,
+  // CATALOG.md (the _world/_npcs/_characters/_srd reference table) is one
+  // of the larger blocks in the shared prompt (STATUS.md 2026-08-14 session
+  // 10: ~500+ tokens, per the Opus agent's live token count) and is only
+  // actionable via read_file/list_files — a stage with useFsTools:false
+  // can't act on it regardless, so 20_resolve/30_scene opt out. Default
+  // true, same generic-contract reasoning as useFsTools: any future stage
+  // that DOES want catalog lookups (10_watch, 00_dm) still gets it without
+  // passing anything.
+  useCatalog = true,
 }) {
   const IDENTITY = readFileSync(safeResolve(workspace, "IDENTITY.md"), "utf8");
   const ROOT_CONTEXT = readFileSync(safeResolve(workspace, "CONTEXT.md"), "utf8");
   const STAGE_CONTEXT = readFileSync(safeResolve(workspace, `${stage}/CONTEXT.md`), "utf8");
+  const CATALOG = useCatalog ? readFileSync(safeResolve(workspace, "CATALOG.md"), "utf8") : null;
 
   const fs_ = useFsTools ? fsTools(workspace) : { tools: [], call: () => undefined, names: new Set() };
   const tools = [...fs_.tools, ...(domainTools?.tools ?? [])];
@@ -234,8 +244,11 @@ export async function runStage({
     "You have no write tool and do not need one.",
     IDENTITY,
     ROOT_CONTEXT,
+    CATALOG,
     STAGE_CONTEXT,
-  ].join("\n\n---\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n---\n\n");
   const messages = [{ role: "user", content: userContent, timestamp: Date.now() }];
 
   const toolLog = [];
