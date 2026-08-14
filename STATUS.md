@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass, shipped 4 fixes (v0.7.2, no module.json bump), and after one iteration-cap correction (4→6) landed on a live-verified 12/12 completion rate at median 6528ms — real improvement, still short of <5s; see decision log). |
+| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass and shipped 5 fixes total (v0.7.2, no module.json bump) — stageRunner.js bundle, maxIterations 4→6 correction, and a code-side pre-resolve of list_roll_tables — each live-verified individually; cumulative live median 7800ms → 6018ms (~23%), 12/12 completion rate held, still short of <5s; see decision log). |
 | Code written | Session 7 built M7 end to end (see that entry below for the full file list). Session 8 (this one) added: `scripts/executors/encounter.js`'s `placeEncounter()` fix (interactive `placeTokens()` → programmatic `createEmbeddedDocuments()`), `tests/setup.js`'s matching mock update, `module.json` → **0.7.1**. |
 | Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6, and now M7 are live-verified. Only M2 remains vitest-only (by design — no DOM involved). |
@@ -1966,6 +1966,35 @@ why — otherwise a future session will relitigate it again.)*
     surface entirely) is the next-cheapest lever per the agent's own ranking, not stage-merging.
     It should also further shrink `20_resolve`'s completion count, which may make revisiting
     `maxIterations` worthwhile again once it's landed — re-verify live, don't assume.
+  - **Same session, continued: implemented and live-verified option 4.** `index.js`'s new
+    `fetchRollTables()` calls `list_roll_tables` directly via `sendIntent`, injects the raw
+    result into `20_resolve`'s board state; `resolveDomainTools` no longer exposes the tool to
+    the model at all (`gm-session/20_resolve/CONTEXT.md` updated to match — the table list is
+    now given, not fetched). Typical successful run: 3 completions → 2 in `20_resolve`. 33/33
+    tests pass (1 new: confirms the tool is actually gone from the surface). `maxIterations`
+    left at 6 rather than re-tightened for the now-shorter typical flow — changing two variables
+    in the same live check would have made the result ambiguous.
+    - **Live-verified same session** (pod started clean, CPU-pinned, same host-swap license
+      re-verification as every prior restart): `resolve 12` came back **12/12 completed, 0 timed
+      out, 15/15 valid `roll_on_table`, 11/11 valid `propose_encounter`, 0 invalid args**. The
+      one run with fewer `propose_encounter` calls than completed runs (11 vs 12) is a legitimate
+      correct-restraint case — `30_scene` declined to propose rather than fabricate, same pattern
+      session 8's "Round 2" already established as expected behavior, not a bug.
+    - **Median latency: ~6018ms** (sorted 3550–7330ms), down from ~6528.5ms with
+      `list_roll_tables` still in the model-facing surface — a real further ~510ms win, smaller
+      than the Opus agent's own ~1.4s projection for this specific change (plausibly because a
+      successful `list_roll_tables` call was already benefiting from prefix-cache reuse, so its
+      *incremental* cost was smaller than a from-scratch estimate would suggest). **Cumulative
+      improvement from the pre-session-10 baseline: ~7800ms → ~6018ms, roughly 23%.** Still short
+      of the <5s kill criterion.
+  - **Next session:** three fixes in, latency has moved from confirmed-failing (~7800ms) to
+    confirmed-better-but-still-short (~6018ms) with zero known regressions at each step — all
+    three changes (`stageRunner.js` bundle, `maxIterations: 6`, `list_roll_tables` pre-resolve)
+    live-verified individually, not just vitest-passed. Remaining levers from the Opus agent's
+    ranked table, cheapest first: shrinking the root `CONTEXT.md`'s workspace map (646 tokens,
+    mostly describing folders these two stages don't use — option 6, flagged as the
+    highest-risk-per-ms option in that table, so weigh carefully), then stage-merging as the
+    last resort, not the next default move.
 
 ## Known forward references in the spec
 
