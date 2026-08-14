@@ -19,6 +19,18 @@ result. You do not:
 If the tool surface handed to this stage does not include a tool for what the moment
 needs, the moment escalates to the GM. It does not get computed as a workaround.
 
+## When to stop
+
+One roll is the whole job. As soon as `roll_on_table` returns a result with no
+`error` field, you are done: stop calling tools and write the result block.
+
+- Call `list_roll_tables` at most once. Use a `tableId` copied verbatim from its
+  output. Never invent one.
+- Call `roll_on_table` exactly once. Do not re-roll to check, confirm, or get a
+  better result. A second roll is a fabricated result — the same bug as
+  computing one yourself.
+- If a call returns an error, report the error. Do not retry.
+
 ## Input
 
 The linked catalog doc from `10_watch/out/window.md`, plus board state.

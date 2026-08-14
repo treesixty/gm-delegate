@@ -6,12 +6,12 @@
 
 | | |
 |---|---|
-| Current milestone | **M6 — encounter tools via ICM StageRunner. Live-verified 2026-08-13 (v0.6.0).** `roll_on_table` returns Foundry's real roll and resolved quantity over the real wire; the model never computed a number in any run. Tool-call *argument* validity (using the real `tableId` vs. guessing a plausible string) measured **75% (6/8)** over a small live sample — below spec's >95% kill criterion. See the session-6 decision log entry. |
+| Current milestone | **M6 — encounter tools via ICM StageRunner. Live-verified 2026-08-13 (v0.6.0).** `roll_on_table` returns Foundry's real roll and resolved quantity over the real wire; the model never computed a number in any run. Tool-call validity issues found in initial testing (75% argument validity, occasional failure to stop calling a tool) were **root-caused to a misconfigured harness (wrong sampler settings, reasoning left on by accident) and fixed** — a clean 20-run re-test came back 100% valid, 0 timeouts, 0 loops. See the session-6 decision log entries. |
 | Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1,encounter}.js` (test-m1 is throwaway, delete in M7). `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`, own `package.json`/`tests/`); `modelClient.js`/`stageRunner.js` now built on `@earendil-works/pi-ai` rather than a hand-rolled `fetch()`, since 2026-08-13. |
-| Test harness | Module: `npm install && npm test` — **126/126 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **23/23 passing**. (node v24.14.1, npm 11.11.0.) |
+| Test harness | Module: `npm install && npm test` — **126/126 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **24/24 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 still vitest-only (no DOM). |
 | Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.6.0** / GitHub release `v0.6.0` installed and live-verified on this pod. |
-| Model in use | **Qwen3.5 9B Q4_K_M, serving locally.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend, installed via `winget install ggml.llamacpp`) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Smoke-tested via `/v1/chat/completions`: steady-state ~71 tok/s prompt eval, ~78 tok/s generation (first request after load is much slower — one-time Vulkan shader-compile cost, not representative). It's a thinking model (emits `reasoning_content`); M5a/M6 will need to account for that in output parsing. **Embeddings (`nomic-embed-text` via Ollama, `config.yaml`'s other endpoint) is still not set up** — out of scope for what was asked this session, noted as a remaining gap before anything that needs embeddings. |
+| Model in use | **Qwen3.5 9B Q4_K_M, serving locally, reasoning OFF.** `llama-server` (llama.cpp `b10375`, Vulkan GPU backend) on this machine's RTX 3080 Ti (12GB VRAM), bound to `127.0.0.1:8080` per `config.yaml`. GGUF from `unsloth/Qwen3.5-9B-GGUF` (5.68GB). Running with Qwen's own documented non-thinking sampler settings — `--temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --reasoning off --no-reasoning-preserve` — since 2026-08-13, after finding reasoning had been silently on (and unconfigured) since M5a. **Embeddings (`nomic-embed-text` via Ollama, `config.yaml`'s other endpoint) is still not set up** — out of scope for what was asked this session, noted as a remaining gap before anything that needs embeddings. |
 
 ## Milestones
 
@@ -1263,6 +1263,106 @@ why — otherwise a future session will relitigate it again.)*
     this finding in hand.
   - Left `gm-delegate-agent/src/index.js`'s `resolve N` batch mode in place (real, tested-by-use
     functionality, not throwaway) for whoever picks this question back up.
+
+- **2026-08-13 (continued, session 6)** — **Root-caused and fixed the "doesn't know when to stop"
+  finding above. It was a misconfigured harness, not (as far as this session's evidence goes) a
+  model-quality problem.** User asked for a deep-reasoning pass (delegated to an Opus subagent)
+  plus a leaderboard comparison of alternative models, explicitly overriding the spec's own
+  "decide from real logs, not a leaderboard" STOP (§10) — a deliberate, informed override, not an
+  oversight, and worth recording as such.
+  - **The Opus agent's root-cause analysis, code-verified against the actual `pi-ai` source
+    (not just its README), found four real bugs, all in the harness:**
+    1. **pi-ai was NOT retrying** — ruled out the task-ID-inflation hypothesis from the previous
+       entry. `maxRetries: 0` by default, confirmed in `pi-ai`'s own source; `ModelClient` never
+       overrides it.
+    2. **No sampling parameters were ever sent to `llama-server`**, so it ran on its own defaults
+       (`temp 0.8, top_k 40, presence_penalty 0`) instead of Qwen3.5's own documented settings.
+       Qwen's model card names `presence_penalty` **specifically as the control that mitigates
+       endless loops**, and it was at `0`.
+    3. **Spec §2's "reasoning off" mandate was never actually in effect.** `modelClient.js` set
+       `thinkingFormat: "qwen"`, which makes `pi-ai` emit a vLLM-shaped top-level `enable_thinking`
+       field — `llama-server` doesn't understand that; it only honors `chat_template_kwargs` (or,
+       we found live below, the `--reasoning` CLI flag). Reasoning had been silently on this whole
+       time, including through the M5a walk test.
+    4. **Prior-turn thinking content was being replayed into every subsequent request**, directly
+       against Qwen's own documented guidance ("exclude thinking content from multi-turn
+       conversation history").
+    Also cited two papers on agentic tool-loop failures (arXiv 2605.00334, arXiv 2607.01641)
+    naming "doesn't know when to stop calling a tool" as a real, common failure class independent
+    of model size, and a `llama.cpp` issue (#20164) tying Qwen3.5 tool-call looping specifically to
+    **optional** tool parameters — our surface had two (`list_roll_tables.filter`,
+    `list_files.dir`).
+  - **The leaderboard comparison landed on: fix the harness first, because no benchmark measures
+    "fails to terminate," so no leaderboard could have predicted or validated a fix for this
+    specific bug anyway.** Full table (Qwen3.5 27B/35B-A3B, Qwen3.6-35B-A3B, Granite 4.1 8B, Gemma
+    4 12B/26B-A4B, others) preserved in this session's transcript, not reproduced here — the
+    actionable output was the priority-0 fix list below, not the table itself.
+  - **Implemented all of the agent's priority-0 fixes:**
+    - `llama-server` restarted with `--temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0
+      --presence-penalty 1.5 --reasoning off --no-reasoning-preserve` — Qwen's own documented
+      non-thinking sampler settings, reasoning genuinely disabled this time. **Verified live**: a
+      raw completion request came back with no `reasoning_content` at all. One correction to the
+      agent's own suggested flag: `--chat-template-kwargs enable_thinking` is deprecated in this
+      `llama.cpp` build (confirmed via its own `--help` and a live deprecation warning on startup)
+      in favor of the dedicated `--reasoning on|off|auto` flag — used that instead.
+    - `gm-delegate-agent/src/modelClient.js`: `reasoning: false` (was `true`), `thinkingFormat`
+      removed (dead config now that the server enforces reasoning-off itself regardless of what
+      the client requests).
+    - `gm-delegate-agent/src/stageRunner.js`: strips `thinking` content blocks before pushing an
+      assistant message back into `messages` (defensive — normally a no-op now, but protects
+      against a future model swap that has thinking on by default). `list_roll_tables.filter` and
+      `list_files.dir` are now **required** parameters, not optional (per the cited `llama.cpp`
+      issue). **`roll_on_table` is now capped at one real roll per stage run** — a second call in
+      the same run returns the cached first result annotated "already rolled — report this and
+      stop" instead of hitting the wire again. Framed as a correctness property in the code
+      comment, not just a loop workaround: the stage contract is exactly one roll, so a second
+      real roll would itself be a kind of fabrication. New test:
+      `tests/stageRunner.test.js` — "caps roll_on_table at one real roll per run," asserts the
+      wire only sees one `sendIntent` call even when the model calls the tool twice.
+    - `gm-session/20_resolve/CONTEXT.md`: added a "When to stop" section — one roll is the whole
+      job, call `list_roll_tables` at most once, call `roll_on_table` exactly once, don't re-roll
+      to confirm, report errors rather than retrying.
+  - **First re-test looked like the fix had failed — it hadn't; the test harness was lying.**
+    Reran `resolve 20` the same way as the original finding (a PowerShell-driven child process,
+    stdin commands sent via `.StandardInput.WriteLine()`, output captured via
+    `.NET`'s `OutputDataReceived` events) and got the same symptom: only "RESOLVE 1/20" ever
+    printed, cut off mid-string, across a 5-minute window. **Diagnosed rather than accepted at face
+    value**, same discipline as the original finding:
+    - A throwaway diagnostic reproducing the tool loop **inline** (not calling the real
+      `runStage()`) completed cleanly in ~5 seconds, 3 iterations, no looping — contradicting the
+      "still broken" read.
+    - That diagnostic turned out to be **not equivalent** to production: it only offered the 2
+      domain tools, not the full 4-tool surface (`list_files`/`read_file` too) `runStage()` actually
+      sends. Rebuilt it to call the **real** `runStage()` directly — also clean, ~3.5 seconds, 3
+      iterations, correct result. So the real function works when called directly.
+    - Isolated it to the stdin-command layer specifically by adding a temporary debug log at the
+      exact moment `process.stdin`'s `'data'` event fires. **The input arrived in ~5ms of being
+      sent** — instant, not delayed. But output didn't appear in the PowerShell capture until the
+      process was killed, ~20+ seconds later, as a burst of individually-timestamped-identical
+      lines. **Conclusion: Node's stdout, redirected through `.NET`'s `Process` I/O plumbing, was
+      buffering internally and not flushing until the process died** — a testing-harness artifact
+      from this specific IPC method, not a reintroduction of the original bug. Removed the debug
+      log after confirming this.
+  - **Clean re-measurement, bypassing the flawed IPC entirely**: a throwaway script called the real
+    `runStage()` directly in a loop, 20 times, output redirected straight to a file via the Bash
+    tool's own backgrounding (no PowerShell `.NET` pipe involved). **Result: 20/20 runs completed,
+    0 timeouts, 0 runs with more than one `roll_on_table` call, 20/20 valid tool-call arguments
+    (100%, up from the earlier 75%), average 3.4s per run (max 4.2s) — down from up to 3 minutes.**
+    The one-roll-per-run cap never even had to trigger in this clean run; the sampler/reasoning
+    fixes alone eliminated the looping behavior the cap exists to guard against.
+  - **Conclusion**: on the evidence gathered this session, Qwen3.5 9B Q4_K_M's tool-calling
+    reliability on this exact stage is now solid once run inside its documented operating envelope
+    — the earlier 75%-validity and repeated-tool-call findings were real, but were measuring a
+    misconfigured harness, not the model's actual ceiling. Model-swap discussion (§10) is not
+    closed off by this — the leaderboard research and root-cause reasoning both remain valid and
+    available if a real GM session surfaces problems this synthetic scenario doesn't — but there is
+    no longer an open, active reliability bug driving that discussion.
+  - All three throwaway diagnostic scripts (`debug-resolve.mjs`, `debug-resolve2.mjs`,
+    `debug-resolve3.mjs`) and the final measurement script (`measure-resolve.mjs`) were deleted
+    after use, per the project's "build nothing past the test" discipline for this kind of
+    diagnostic work.
+  - 126/126 module tests, 24/24 agent tests (the new one-roll-per-run test included) passing
+    throughout.
 
 ## Known forward references in the spec
 

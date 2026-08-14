@@ -1,10 +1,18 @@
 // modelClient.js — one interface, config per subagent (spec §1.5/§5.1),
 // backed by @earendil-works/pi-ai (2026-08-13 decision, STATUS.md) instead
-// of a hand-rolled fetch(). pi-ai already treats this project's exact
-// situation — an OpenAI-compatible local endpoint (llama-server) serving a
-// thinking model (Qwen3.5's reasoning content) — as first-class concepts
-// (Model.reasoning, thinkingFormat, AssistantMessage's `thinking` content
-// blocks), which the hand-rolled version used to leave to each call site.
+// of a hand-rolled fetch().
+//
+// Reasoning is OFF (spec §2's original mandate: "reasoning is disabled by
+// default... thinking tokens would blow the latency budget"). M5a/M6 ran
+// with it left on by accident — llama-server was never told to disable it,
+// and pi-ai's `thinkingFormat: "qwen"` sent the wrong wire field for
+// llama-server anyway (a vLLM-shaped top-level `enable_thinking`, not
+// llama-server's `--reasoning` flag), so the mandate was silently not in
+// effect. Fixed 2026-08-13 (STATUS.md) after finding the model would loop
+// calling `roll_on_table` repeatedly instead of stopping: llama-server now
+// runs with `--reasoning off` server-side, confirmed live (no
+// `reasoning_content` in a real response) — `reasoning: false` here matches
+// that actual behavior rather than declaring a capability nothing invokes.
 //
 // Every model call still goes through this one interface, so swapping a
 // subagent to a different provider stays a config edit — pi-ai's own
@@ -36,12 +44,11 @@ export class ModelClient {
             api: "openai-completions",
             provider: subagentKey,
             baseUrl: cfg.endpoint,
-            reasoning: true, // qwen3.5-9b-q4km is a thinking model — confirmed live, M5a
+            reasoning: false, // deliberately off server-side now (--reasoning off) — see file header
             input: ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             contextWindow: 8192, // matches llama-server's -c 8192 this session actually started with
             maxTokens: cfg.max_tokens,
-            thinkingFormat: "qwen", // Qwen's enable_thinking wire format
             // llama-server isn't in pi-ai's auto-detected OpenAI-compat list
             // (Cerebras, xAI, DeepSeek, ...) — same class of local server the
             // library's own docs call out by name (Ollama, vLLM, SGLang).

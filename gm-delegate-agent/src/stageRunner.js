@@ -45,9 +45,11 @@ function fsTools(workspace) {
   const tools = [
     {
       name: "list_files",
-      description: "List files/directories in the gm-session workspace.",
+      // required, not optional (see resolveDomainTools' comment on why —
+      // llama.cpp #20164 ties Qwen3.5 tool-call looping to optional params)
+      description: "List files/directories in the gm-session workspace. Pass '.' for the workspace root.",
       parameters: Type.Object({
-        dir: Type.Optional(Type.String({ description: "Path relative to workspace root. Default '.'." })),
+        dir: Type.String({ description: "Path relative to workspace root. Use '.' for the root." }),
       }),
     },
     {
@@ -72,21 +74,41 @@ function fsTools(workspace) {
 // 20_resolve's domain tools, sent as real INTENTs over the wire — this is
 // the thing M6's Done-when actually tests (Foundry's real roll, the model
 // never computing a number).
+//
+// Two hardening changes, 2026-08-13 (STATUS.md), after finding the model
+// would repeatedly call roll_on_table instead of stopping once it had a
+// real result — a documented agentic-loop failure class, not something to
+// rely on prompting alone to fix ("developers should not rely on the model
+// to eventually stop producing tool calls," arXiv 2607.01641):
+//   1. `filter` is now required, not optional — llama.cpp #20164 ties Qwen3.5
+//      tool-call looping specifically to optional parameters.
+//   2. roll_on_table is capped at one real roll per stage run. A second call
+//      in the same run returns the cached first result instead of rolling
+//      again — this is also a correctness property, not just a loop
+//      workaround: the stage contract is exactly one roll, so a second real
+//      roll would itself be a kind of fabrication (the GM never asked for
+//      two encounters).
 export function resolveDomainTools(orchestrator) {
+  let cachedRoll = null;
   const tools = [
     {
       name: "list_roll_tables",
       description: "List roll tables in the world. Filter by name substring.",
-      parameters: Type.Object({ filter: Type.Optional(Type.String()) }),
+      parameters: Type.Object({
+        filter: Type.String({ description: "Name substring to filter by. Pass an empty string to list all tables." }),
+      }),
     },
     {
       name: "roll_on_table",
       description:
-        "Roll on a table. Foundry performs the roll. Returns the drawn result, the dice that produced it, and the resolved quantity. Does NOT display to chat.",
+        "Roll on a table. Foundry performs the roll. Returns the drawn result, the dice that produced it, and the resolved quantity. Does NOT display to chat. Callable at most once per encounter — a second call returns the same result, it does not roll again.",
       parameters: Type.Object({ tableId: Type.String() }),
     },
   ];
   async function call(name, args) {
+    if (name === "roll_on_table" && cachedRoll) {
+      return JSON.stringify({ ...cachedRoll, note: "already rolled this encounter — report this result and stop" });
+    }
     const outcome = await orchestrator.sendIntent({
       subsystem: "random_encounters",
       stage: "prompt", // §4.3: mechanical/drafting work — auto under DEFAULT_POLICY
@@ -96,7 +118,9 @@ export function resolveDomainTools(orchestrator) {
     if (outcome.status !== "EXECUTED") return JSON.stringify({ error: outcome.reason ?? outcome.status });
     // roll_on_table's executor wraps its data as { result: {...}, created: [] }
     // (spec §5.2's own code sample) — unwrap one level for the model.
-    return JSON.stringify(outcome.result?.result ?? outcome.result);
+    const result = outcome.result?.result ?? outcome.result;
+    if (name === "roll_on_table") cachedRoll = result;
+    return JSON.stringify(result);
   }
   return { tools, call, names: new Set(tools.map((t) => t.name)) };
 }
@@ -122,7 +146,12 @@ export async function runStage({ stage, workspace, modelClient, subagentKey, use
   const toolLog = [];
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
     const assistantMessage = await modelClient.chatComplete(subagentKey, { systemPrompt, messages, tools });
-    messages.push(assistantMessage);
+    // Reasoning is off server-side (see modelClient.js), so this is normally
+    // a no-op — but Qwen's own model card says prior-turn thinking must not
+    // be replayed into history ("exclude thinking content from multi-turn
+    // conversation history"), so strip it defensively rather than assume
+    // reasoning stays off forever if a model gets swapped later.
+    messages.push({ ...assistantMessage, content: assistantMessage.content.filter((b) => b.type !== "thinking") });
 
     const toolCalls = assistantMessage.content.filter((b) => b.type === "toolCall");
     if (toolCalls.length) {

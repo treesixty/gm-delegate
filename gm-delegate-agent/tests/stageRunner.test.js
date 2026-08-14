@@ -141,6 +141,46 @@ describe("resolveDomainTools — 20_resolve's tools go over the real wire (M6 Do
     expect(reported).toEqual({ drawn: ["[[2d4]] Wolf Pack"], tableDice: "1d20", tableTotal: 5, quantity: 8, quantityDice: "2d4=8" });
   });
 
+  it("caps roll_on_table at one real roll per run — a second call returns the cached result, not a second INTENT (STATUS.md 2026-08-13)", async () => {
+    let sendIntentCalls = 0;
+    const conn = {
+      send(data) {
+        const frame = JSON.parse(data);
+        if (frame.type !== "INTENT") return;
+        sendIntentCalls++;
+        const payload = {
+          status: "EXECUTED",
+          result: { result: { drawn: ["[[2d4]] Wolf Pack"], tableDice: "1d20", tableTotal: 5, quantity: 8, quantityDice: "2d4=8" }, created: [] },
+        };
+        queueMicrotask(() => orchestrator.handleFrame({ type: "RESULT", id: frame.id, payload }));
+      },
+    };
+    orchestrator.attach(conn);
+
+    // Reproduces the observed failure mode: the model calls roll_on_table
+    // again even after a successful result.
+    const modelClient = fakeModelClient([
+      toolCallResponse("roll_on_table", { tableId: "RollTable.abc" }),
+      toolCallResponse("roll_on_table", { tableId: "RollTable.abc" }),
+      finalResponse("tool: roll_on_table\nresult: reported"),
+    ]);
+
+    const result = await runStage({
+      stage: "20_resolve",
+      workspace,
+      modelClient,
+      subagentKey: "encounter",
+      userContent: "go",
+      domainTools: resolveDomainTools(orchestrator),
+    });
+
+    expect(sendIntentCalls).toBe(1); // only the first call reached the wire
+    expect(result.toolLog).toHaveLength(2);
+    const secondCallResult = JSON.parse(result.toolLog[1].result);
+    expect(secondCallResult.note).toMatch(/already rolled/);
+    expect(secondCallResult.drawn).toEqual(["[[2d4]] Wolf Pack"]); // same cached result, not a fresh roll
+  });
+
   it("never fabricates: a REJECTED intent is reported as an error, not a plausible number", async () => {
     attachAutoReplyingConn(orchestrator, () => ({ status: "REJECTED", reason: "POLICY_OFF" }));
     const modelClient = fakeModelClient([
