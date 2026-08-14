@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Current milestone | **M6 — encounter tools via ICM StageRunner. Live-verified 2026-08-13 (v0.6.0).** `roll_on_table` returns Foundry's real roll and resolved quantity over the real wire; the model never computed a number in any run. Tool-call *argument* validity (using the real `tableId` vs. guessing a plausible string) measured **75% (6/8)** over a small live sample — below spec's >95% kill criterion. See the session-6 decision log entry. |
-| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1,encounter}.js` (test-m1 is throwaway, delete in M7). `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`, own `package.json`/`tests/`). |
+| Code written | `module.json`, `scripts/main.js`, `scripts/journal.js`, `scripts/policy.js`, `scripts/interceptor.js`, `scripts/panel.js`, `scripts/eventbus.js`, `scripts/ulid.js`, `scripts/envelope.js`, `scripts/socket.js`, `templates/panel.hbs`, `styles/gm-delegate.css`, `scripts/executors/{index,test-m1,encounter}.js` (test-m1 is throwaway, delete in M7). `gm-delegate-agent/` — its own Node package (`src/{ulid,config,envelope,modelClient,orchestrator,server,index,stageRunner}.js`, own `package.json`/`tests/`); `modelClient.js`/`stageRunner.js` now built on `@earendil-works/pi-ai` rather than a hand-rolled `fetch()`, since 2026-08-13. |
 | Test harness | Module: `npm install && npm test` — **126/126 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **23/23 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6 all live-verified. M2 still vitest-only (no DOM). |
 | Dev Foundry host | RunPod pod `d90mhv7i5kvqyg` (US-NC-1), secure cloud, RTX 4090, `ghcr.io/felddy/foundryvtt:14`, 15GB persistent mount at `/data`. Connect: `https://d90mhv7i5kvqyg-30000.proxy.runpod.net`. `module.json` **v0.6.0** / GitHub release `v0.6.0` installed and live-verified on this pod. |
@@ -1153,6 +1153,63 @@ why — otherwise a future session will relitigate it again.)*
     still-open "which model" question) or whether it's addressable with more `20_resolve/CONTEXT.md`
     guidance about actually reading `list_roll_tables`'s output before calling `roll_on_table` — GM's
     call, not decided here.
+
+- **2026-08-13 (continued, session 6)** — **Swapped `ModelClient`'s hand-rolled `fetch()` for
+  `@earendil-works/pi-ai`, at the user's request after evaluating the actual repo (not just
+  marketing copy).** User asked whether a packaged agent harness was worth pulling in; initial
+  answer (based on search-result summaries alone) was "probably not, wrong shape for opencode,
+  unclear for pi." User supplied the real repo (`github.com/earendil-works/pi`). Reading the
+  actual `pi-ai`/`pi-agent-core` package READMEs and type declarations changed the answer for
+  `pi-ai` specifically: it has a named `createProvider()` path for local OpenAI-compatible
+  servers (the README's own example is Ollama; `llama-server` is the same shape) and treats
+  thinking/reasoning content as a first-class `ThinkingContent` block — exactly the
+  `reasoning_content` handling `modelClient.js`/`stageRunner.js` were hand-rolling. Did **not**
+  adopt `pi-agent-core` (the fuller `Agent` class) this session — narrower ask, and it brings
+  session-persistence/SQLite-backend features this project doesn't need.
+  - **`gm-delegate-agent/src/modelClient.js`, rewritten.** Registers one `pi-ai` `createProvider()`
+    per subagent key (`classifier`, `encounter`), each a single-model `openai-completions` provider
+    pointed at `llama-server`. `chatComplete()` now returns pi-ai's `AssistantMessage` directly
+    (`content: (text|thinking|toolCall)[]`) instead of raw OpenAI JSON.
+  - **`gm-delegate-agent/src/stageRunner.js`, rewritten to match.** Tool parameters are now
+    TypeBox schemas (`Type.Object(...)`, re-exported from `pi-ai`) instead of hand-written
+    JSON-schema objects; `Context.messages` uses pi-ai's `UserMessage`/`AssistantMessage`/
+    `ToolResultMessage` shapes (system prompt is a separate `systemPrompt` field, not a
+    role:"system" message); a `ToolCall`'s `arguments` arrive already parsed — the manual
+    `JSON.parse(tc.function.arguments)` this file had is gone.
+  - **One real gotcha, found by testing live rather than trusting the README's example
+    verbatim** (same discipline as the M6 `RollTable`/`TableResult` schema check): the
+    README's own Ollama example configures a keyless provider with
+    `resolve: async () => ({ auth: {} })`, and `models.getAuth()` does accept that — confirmed
+    directly. But `models.complete()` rejected it with `"No API key for provider"`, a different
+    code path with a stricter requirement not visible from `getAuth()` alone. Fixed by resolving
+    a dummy `apiKey: "not-needed"` string instead — harmless, since `llama-server` never checks
+    the Authorization header it never asked for. Isolated with three throwaway standalone repro
+    scripts (not committed) before touching the real class, so the fix landed in one edit instead
+    of guess-and-check inside the actual codebase.
+  - **Live-verified after the fix**: a direct `ModelClient` smoke test correctly separated
+    `reasoning_content` into a `thinking` content block (`thinkingSignature: "reasoning_content"`)
+    from the final `text` block — the exact thing that used to need hand-parsing. Then the full
+    `resolve` stdin command, over the real wire, against the real Thornwood table: model called
+    `roll_on_table`, got back `dice: "1d20=16"`, `drawn: "Wounded Traveller"`, reported it without
+    fabricating — confirmed both in the agent's own output and, independently, in the module's
+    live card log (`provenance` matches exactly). M6's Done-when still holds with the new stack.
+  - **`npm install` flagged 5 vulnerabilities (3 moderate, 1 high, 1 critical) — checked, and
+    they predate this change.** All five are in `vitest`'s own transitive `esbuild`/`vite` chain
+    (the critical one, `GHSA-5xrq-8626-4rwp`, requires the Vitest **UI server** to be listening,
+    which no script in this project ever starts — `npm test` only ever runs `vitest run`).
+    Confirmed the identical finding exists in the **module's** root `package.json` too
+    (`vitest: ^2.0.5`, same as this package), independent of `pi-ai` — not something this swap
+    introduced. Not fixed this session (touches every test file's runner, unrelated to the task);
+    flagged here so a future session doesn't assume `pi-ai` is the source if `npm audit` surfaces
+    it again.
+  - **126/126 module tests unaffected** (this package's swap doesn't touch the module side at
+    all). **23/23 agent tests updated and passing** — `tests/stageRunner.test.js`'s fake
+    `ModelClient` now returns pi-ai's `AssistantMessage` shape instead of raw OpenAI JSON, same
+    change the real class went through.
+  - **No module release needed for this one** — `gm-delegate-agent` is its own Node package the
+    local agent process runs; unlike `scripts/executors/encounter.js` and the other M6 changes,
+    nothing here ships in the Foundry module zip, so there's no `v0.6.x` bump or pod reinstall
+    tied to this commit.
 
 ## Known forward references in the spec
 
