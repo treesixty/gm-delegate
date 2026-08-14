@@ -136,7 +136,26 @@ export async function placeEncounter({ proposalId }) {
     }
   }
 
-  const placed = await canvas.tokens.placeTokens(tokenData, {});
+  // canvas.tokens.placeTokens() is Foundry's interactive click-to-place
+  // workflow, not a programmatic create — confirmed live by reading its
+  // source: it registers pointerdown/pointermove listeners and returns a
+  // Promise.withResolvers() promise that only resolves on a canvas click,
+  // which never happens for a headless Accept & Place. Bulk-create instead,
+  // scattered in a small grid around the scene center (getTokenDocument()
+  // defaults x/y to 0,0, which would stack every token exactly on top of
+  // the last). journal.js's commit() records Layer A history for this same
+  // createEmbeddedDocuments call, guarded against v14 core double-recording.
+  const gridSize = canvas.grid.size;
+  const { x: sceneX, y: sceneY, width: sceneWidth, height: sceneHeight } = canvas.scene.dimensions.sceneRect;
+  const centerX = sceneX + sceneWidth / 2;
+  const centerY = sceneY + sceneHeight / 2;
+  const cols = Math.ceil(Math.sqrt(tokenData.length));
+  tokenData.forEach((t, i) => {
+    t.x = centerX + (i % cols) * gridSize - ((cols - 1) * gridSize) / 2;
+    t.y = centerY + Math.floor(i / cols) * gridSize;
+  });
+
+  const placed = await canvas.scene.createEmbeddedDocuments("Token", tokenData);
   removeProposal(proposalId);
 
   return {
