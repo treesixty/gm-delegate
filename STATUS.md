@@ -1211,6 +1211,59 @@ why — otherwise a future session will relitigate it again.)*
     nothing here ships in the Foundry module zip, so there's no `v0.6.x` bump or pod reinstall
     tied to this commit.
 
+- **2026-08-13 (continued, session 6)** — **Tried to get a larger tool-call-validity sample (per
+  the previous entry's own "n=8 is too small" caveat) and found a more serious, different
+  reliability problem instead: the model frequently does not know when to stop calling
+  `roll_on_table`.** Not a code bug — a real model-behavior finding, reproduced directly.
+  - Added a `resolve N` batch mode to `gm-delegate-agent/src/index.js`'s stdin driver (loops the
+    stage N times, summarizes tool-call validity across all calls) rather than repeating N manual
+    single-shot invocations. First run: `resolve 30`, backgrounded for 15 minutes. Result: only
+    "RESOLVE 1/30" ever printed, and even that was cut off mid-string — nowhere near the ~20-40s
+    per run seen in prior single-shot tests.
+  - **Diagnosed rather than assumed a hang.** Checked for a lingering process (none — the kill was
+    clean) and `llama-server`'s own `/slots` endpoint and request log. The log showed a single
+    slot's context growing by a consistent ~110 tokens per call, each call fast (~1-3s), repeating
+    many times in a row — the signature of one conversation being replayed over and over, not a
+    stuck process. Wrote a throwaway instrumented script (`debug-resolve.mjs`, deleted after use)
+    that drove the exact same `orchestrator`/`modelClient` path directly, logging every iteration
+    with a hard 45s external cutoff instead of trusting another silent multi-minute run. **Result:
+    confirmed live** — the model called `roll_on_table` 13+ times in a row with `stopReason:
+    "toolUse"` every time, never producing a final text answer, hitting the diagnostic's own cap
+    before finishing.
+  - **Retried the real `resolve N` path at a smaller size (`resolve 5`) with timestamped output**
+    to see the production code's actual behavior, not just the diagnostic's. Run 1 (real wire,
+    real `MAX_TOOL_ITERATIONS = 8` cap): **took 3 full minutes** to land on a valid final answer
+    (`Wolf Pack`, `2d4=6`) — meaning it spent most of that time on repeated `roll_on_table` calls
+    before finally stopping. Run 2, immediately after: hit the 8-iteration cap and returned
+    `timedOut: true`. **Not fully explained**: why run 2 appears to have resolved near-instantly
+    after run 1's 3-minute run, and why `llama-server`'s cumulative task-ID counter jumped by
+    several thousand across a single 3-minute window (far more than the handful of real completion
+    calls `MAX_TOOL_ITERATIONS` should allow) — genuinely unresolved, not chased further after
+    reasonable diagnostic effort. Worth another look if this recurs: check whether `pi-ai`'s
+    `openai-completions` implementation is retrying internally more than expected, which would
+    explain both the task-ID inflation and the 3-minute single-run duration without contradicting
+    `MAX_TOOL_ITERATIONS` actually being honored at the `stageRunner.js` level (confirmed it is,
+    via the diagnostic).
+  - **What this changes about the earlier 75%-tool-call-argument-validity finding**: that measured
+    whether `roll_on_table`'s *arguments* were valid once called. This is a different, more basic
+    failure mode — not knowing when to *stop* calling a tool it already has a real answer from.
+    Both point the same direction (this model's tool-use reliability on this task is a real
+    concern), but this one is more serious: a GM waiting 3 minutes for an encounter card, or
+    getting a silent timeout, is a worse failure than a wrong-but-caught table ID.
+  - **Decided not to chase a precise statistic.** Given a single run can legitimately take minutes
+    when the model loops, running a large N-sized batch to compute a clean percentage would cost
+    a lot of wall-clock/GPU time for a number that's already qualitatively clear: this behavior is
+    real, reproducible, and not rare (2 of the first 2 fresh runs both exhibited it — one slowly
+    self-corrected, one didn't self-correct within the iteration cap at all).
+  - **Bearing on the §10 "which model" question, raised explicitly by the user this session**:
+    this is now real evidence, not just the small earlier sample, and it's evidence of the kind
+    the M6 briefing's own remedy list anticipates ("prune the surface further, move up a model
+    tier, or route this subagent to Claude" — not a broader leaderboard comparison, per §10's own
+    explicit STOP against that). Not decided here — flagged for the user/a future session with
+    this finding in hand.
+  - Left `gm-delegate-agent/src/index.js`'s `resolve N` batch mode in place (real, tested-by-use
+    functionality, not throwaway) for whoever picks this question back up.
+
 ## Known forward references in the spec
 
 The spec's code snippets reference things built in later milestones. This is expected;

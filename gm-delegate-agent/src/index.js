@@ -22,6 +22,15 @@ console.log(
   'gm-delegate-agent | stdin commands: "rename <actorUuid>", "reject", "events", "revoked", "resolve"'
 );
 
+const RESOLVE_SCENARIO = [
+  "Linked catalog doc: _world/locations/thornwood-road.md",
+  "Context: the party is travelling the Thornwood Road at dusk. Time for a random encounter check.",
+  "Board state:",
+  "  scene: Thornwood Road",
+  "  combat: false",
+  "  (call list_roll_tables if you need to find the right table id)",
+].join("\n");
+
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", async (line) => {
   const [cmd, ...rest] = line.trim().split(/\s+/);
@@ -58,23 +67,49 @@ process.stdin.on("data", async (line) => {
       // territory), so this hand-fires a 20_resolve stage run against a
       // travel-encounter scenario, over the real wire, against the real
       // Thornwood Road Encounters table.
-      const userContent = [
-        "Linked catalog doc: _world/locations/thornwood-road.md",
-        "Context: the party is travelling the Thornwood Road at dusk. Time for a random encounter check.",
-        "Board state:",
-        "  scene: Thornwood Road",
-        "  combat: false",
-        "  (call list_roll_tables if you need to find the right table id)",
-      ].join("\n");
-      const result = await runStage({
-        stage: "20_resolve",
-        workspace,
-        modelClient,
-        subagentKey: "encounter",
-        userContent,
-        domainTools: resolveDomainTools(orchestrator),
-      });
-      console.log("RESOLVE:", JSON.stringify(result, null, 2));
+      //
+      // Optional "resolve N": runs N times in a loop and prints a tool-call
+      // validity summary (STATUS.md 2026-08-13's 75%-on-8-calls finding was
+      // too small a sample to trust; this reruns it larger, same model, same
+      // scenario — not a model comparison, just a bigger N).
+      const n = Math.max(1, parseInt(rest[0], 10) || 1);
+      const userContent = RESOLVE_SCENARIO;
+      const runs = [];
+      for (let i = 0; i < n; i++) {
+        const result = await runStage({
+          stage: "20_resolve",
+          workspace,
+          modelClient,
+          subagentKey: "encounter",
+          userContent,
+          domainTools: resolveDomainTools(orchestrator),
+        });
+        runs.push(result);
+        if (n === 1) {
+          console.log("RESOLVE:", JSON.stringify(result, null, 2));
+        } else {
+          console.log(`RESOLVE ${i + 1}/${n}:`, result.timedOut ? "TIMED OUT" : (result.content ?? "").slice(0, 80));
+        }
+      }
+      if (n > 1) {
+        const rollCalls = runs.flatMap((r) => r.toolLog.filter((t) => t.name === "roll_on_table"));
+        const validCalls = rollCalls.filter((t) => {
+          try {
+            return !JSON.parse(t.result).error;
+          } catch {
+            return true; // not JSON with an error field => a real result object
+          }
+        });
+        const completedRuns = runs.filter((r) => !r.timedOut && r.content);
+        console.log("RESOLVE SUMMARY:", {
+          runs: n,
+          completedRuns: completedRuns.length,
+          rollOnTableCalls: rollCalls.length,
+          validCalls: validCalls.length,
+          validityRate: rollCalls.length ? `${((validCalls.length / rollCalls.length) * 100).toFixed(1)}%` : "n/a",
+          invalidArgs: rollCalls.filter((t) => !validCalls.includes(t)).map((t) => t.args),
+        });
+      }
     } else {
       console.log('unknown command. Try: "rename <actorUuid>", "reject", "events", "revoked"');
     }
