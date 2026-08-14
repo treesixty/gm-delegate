@@ -1950,13 +1950,19 @@ why — otherwise a future session will relitigate it again.)*
         curve. **Not resolved this session** — flagged for the next session rather than
         unilaterally re-tuning the cap and re-spending pod time without checking in first.
       - Pod stopped at end of session (billing halted, `/data` untouched).
-  - **Next session:** decide `20_resolve`'s `maxIterations` value with the completion-rate
-    tradeoff above in hand — likely something between 4 and 8, re-verified live before trusting
-    a vitest pass alone (same lesson this file has now stated for M3, the 4th failure mode, and
-    this cap, three separate times). Once that's settled, read whether the resulting live median
-    clears <5s. If it's still short, option 4 from the agent's report (pre-resolve the roll table
-    in code, skip the `list_roll_tables` model round trip entirely) is the next-cheapest lever,
-    not stage-merging.
+  - **Same session, continued: `20_resolve`'s `maxIterations` set to 6** (user's own call, split
+    between the too-tight 4 and the original unbounded-tail 8; not re-derived from more data).
+    32/32 tests still pass. **Not yet live-re-verified** — the 12-run sample that found the
+    4-was-too-tight problem was itself one pod session's worth of real cost/time, and re-running
+    the same check after every single cap adjustment isn't free; asked before spending it again
+    rather than assumed.
+  - **Next session (or later this one, if re-verified):** if a live check hasn't happened yet,
+    get one before trusting 6 either — same lesson this file has now stated for M3, the 4th
+    failure mode, and the maxIterations cap itself, three separate times: a vitest pass proves
+    the code path exists, not that the value is right. Once completion rate and latency are both
+    acceptable, read whether the resulting live median clears <5s. If it's still short, option 4
+    from the agent's report (pre-resolve the roll table in code, skip the `list_roll_tables`
+    model round trip entirely) is the next-cheapest lever, not stage-merging.
 
 ## Known forward references in the spec
 

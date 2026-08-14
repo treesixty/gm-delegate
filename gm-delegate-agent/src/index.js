@@ -59,8 +59,11 @@ async function runEncounterFlow(text) {
     // session 10).
     useFsTools: false,
     // Typical successful run is 2-3 iterations (list_roll_tables, roll_on_table,
-    // final text); this bounds the tail without touching the median.
-    maxIterations: 4,
+    // final text). 4 (session 10) was too tight — live-verified 2/12 runs
+    // that would have finished within the old 8-iteration budget instead
+    // produced no card at all. 6 (chosen by the user, not re-derived) trades
+    // some of that tail-guard tightness back for completion rate.
+    maxIterations: 6,
   });
 
   if (resolveResult.timedOut || !resolveResult.content) {
