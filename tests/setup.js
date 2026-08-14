@@ -28,6 +28,10 @@ globalThis.game = {
     find: vi.fn(() => null),
     importFromCompendium: vi.fn()
   },
+  // M6 (§5.2): random_encounters' tools read these. `contents`/`get` mirror
+  // the actors mock's shape; individual test files set return values.
+  tables: { contents: [], get: vi.fn(() => null) },
+  packs: { get: vi.fn(() => null) },
   // socket.js reads game.modules.get(MODULE_ID).version for its HELLO frame.
   modules: new Map([["gm-delegate", { version: "0.0.0-test" }]]),
   user: { isGM: true }
@@ -69,7 +73,24 @@ globalThis.Hooks = {
   }),
 };
 globalThis.ChatMessage = { deleteDocuments: vi.fn(async () => []) };
-globalThis.Roll = { fromJSON: vi.fn((json) => JSON.parse(json)) };
+
+// A constructor (encounter.js's resolveInlineFormulas does `new Roll(formula)`,
+// M6 §5.2), not just the static fromJSON eventbus.js already needed. Default
+// evaluate() is deterministic (sum of the max face implied by "NdM", or 0 for
+// a flat formula like "1") so tests are reproducible without per-test mocking;
+// override via vi.spyOn(Roll.prototype, "evaluate") when a test needs a
+// specific total.
+function RollMock(formula) {
+  this.formula = formula;
+  this.total = undefined;
+}
+RollMock.prototype.evaluate = vi.fn(async function () {
+  const m = this.formula.match(/^(\d+)d(\d+)$/);
+  this.total = m ? Number(m[1]) * Number(m[2]) : Number(this.formula) || 0;
+  return this;
+});
+RollMock.fromJSON = vi.fn((json) => JSON.parse(json));
+globalThis.Roll = RollMock;
 
 globalThis.foundry = {
   utils: {

@@ -148,5 +148,26 @@ async function onMessage(raw) {
     subsystem: intent.subsystem,
     latency_ms: Date.now() - receivedAt,
     rejected: status === "REJECTED" ? reason : null,
+    provenance: extractProvenance(intent, result),
   }).catch((err) => console.error(`${MODULE_ID} | socket | logCard failed`, err));
+}
+
+// M6 (§5.2, Done-when): roll_on_table's result carries the mechanical
+// resolution — the thing the §6 card log's `provenance` column exists to
+// hold. Not every action's result maps to this shape (most don't), so this
+// stays defensive rather than assuming intent.action === "roll_on_table".
+function extractProvenance(intent, result) {
+  // roll_on_table's executor returns { result: {drawn, tableDice, ...}, created: [] }
+  // (spec §5.2's own code sample) — the mechanical fields sit one level under
+  // the executor's own `result` key, not at its top.
+  const mechanical = result?.result;
+  if (intent.action !== "roll_on_table" || !mechanical) return null;
+  return {
+    tableId: intent.args.tableId,
+    roll: mechanical.tableTotal,
+    tableDice: mechanical.tableDice,
+    result: mechanical.drawn?.[0] ?? null,
+    quantity: mechanical.quantity,
+    quantityDice: mechanical.quantityDice,
+  };
 }

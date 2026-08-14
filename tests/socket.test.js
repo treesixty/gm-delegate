@@ -139,6 +139,43 @@ describe("socket.js — INTENT -> RESULT (§5.6 Done when)", () => {
     expect(card.rejected).toBe("HARD_BAN");
   });
 
+  it("logs provenance for an executed roll_on_table intent (M6 Done-when)", async () => {
+    fromUuid.mockResolvedValue({
+      draw: vi.fn(async () => ({
+        roll: { formula: "1d20", total: 5 },
+        results: [{ name: "[[2d4]] Wolf Pack" }],
+      })),
+    });
+    connect("ws://127.0.0.1:8765");
+    latest()._open();
+    latest().sent.length = 0;
+
+    latest()._message(intentFrame({ action: "roll_on_table", args: { tableId: "RollTable.abc" } }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const card = getCardLog().at(-1);
+    expect(card.provenance).toEqual({
+      tableId: "RollTable.abc",
+      roll: 5,
+      tableDice: "1d20",
+      result: "[[2d4]] Wolf Pack",
+      quantity: 8, // RollMock's deterministic 2d4 -> 2*4
+      quantityDice: "2d4=8",
+    });
+  });
+
+  it("logs null provenance for actions other than roll_on_table", async () => {
+    fromUuid.mockResolvedValue({ toObject: () => ({ name: "old" }), update: vi.fn() });
+    connect("ws://127.0.0.1:8765");
+    latest()._open();
+    latest().sent.length = 0;
+
+    latest()._message(intentFrame()); // test.actor.rename, from the shared fixture
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getCardLog().at(-1).provenance).toBeNull();
+  });
+
   it("drops a frame with an invalid envelope and never calls handleIntent", async () => {
     connect("ws://127.0.0.1:8765");
     latest()._open();

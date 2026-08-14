@@ -9,7 +9,10 @@
 # where the agent's own listening socket binds (§5.6, corrected — the agent
 # is the WS server, the module dials in).
 
-workspace: "./gm-session" # the ICM runtime workspace (§5.5), not used before M5a
+workspace: "../gm-session" # the ICM runtime workspace (§5.5); resolved relative to this file.
+# NOT "./gm-session" — the workspace lives at the project root, one level above
+# this package (gm-delegate-agent/), not inside it. Was wrong until M6 (2026-08-13);
+# nothing read this value before then so it went unnoticed.
 
 ws:
   host: "127.0.0.1" # localhost only (§5.6 rule 6) — never 0.0.0.0
@@ -17,8 +20,12 @@ ws:
 
 models:
   classifier: { endpoint: "http://localhost:8080/v1", model: "qwen3.5-9b-q4km", max_tokens: 32 }
-  encounter: { endpoint: "http://localhost:8080/v1", model: "qwen3.5-9b-q4km", max_tokens: 200 }
+  encounter: { endpoint: "http://localhost:8080/v1", model: "qwen3.5-9b-q4km", max_tokens: 2048 }
   # served by llama-server, NOT Ollama (no working Qwen3.5 GGUF there — §0/§2)
+  # max_tokens bumped 200 -> 2048 (2026-08-13, M6): qwen3.5-9b-q4km is a thinking
+  # model (emits reasoning_content before content/tool_calls) — 200 truncated
+  # mid-reasoning before the model ever got to act. classifier's 32 has the same
+  # problem but nothing calls it yet; left alone, flagged in STATUS.md.
   # swap any of these to Anthropic behind a shim, per-subagent, without touching agent code
 
 embeddings:
