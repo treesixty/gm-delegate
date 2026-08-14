@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass and shipped 5 fixes total (v0.7.2, no module.json bump) — stageRunner.js bundle, maxIterations 4→6 correction, and a code-side pre-resolve of list_roll_tables — each live-verified individually; cumulative live median 7800ms → 6018ms (~23%), 12/12 completion rate held, still short of <5s; see decision log). |
+| Current milestone | **M7 — the card, with Edit. Live-verified this session (v0.7.1).** All 9 Done-when items from `docs/milestones/07-card.md` confirmed against a real Foundry v14 pod: card renders, Accept & Place creates real tokens and `undoLast(1)` removes them, Edit logs `gm_edit_diff`, Reroll logs `reroll`, Skip logs `skip`, an unopened card expires and logs `expired`, provenance matches the tool-call trace, `touches()`/undo work. **Two real findings, not swept under the rug:** a load-bearing bug (`place_encounter` hung forever — fixed, see decision log) and a latency miss (median 6562ms across 5 samples, all above the 5s kill criterion — session 9 confirmed this is architectural, not network/hardware; session 10 got a corrected root cause (spec assumed 40 generated tokens, actual is ~380) from an Opus planning pass and shipped 6 fixes total (v0.7.2, no module.json bump), each live-verified individually — 4 latency wins (stageRunner.js bundle, maxIterations 4→6 correction, code-side pre-resolve of list_roll_tables) took the median 7800ms → 6018ms (~23%); a 5th (CATALOG.md split) is correctness-positive but showed no measurable latency win (~6436ms steady-state) — read honestly rather than spun as a 6th win; see decision log). |
 | Code written | Session 7 built M7 end to end (see that entry below for the full file list). Session 8 (this one) added: `scripts/executors/encounter.js`'s `placeEncounter()` fix (interactive `placeTokens()` → programmatic `createEmbeddedDocuments()`), `tests/setup.js`'s matching mock update, `module.json` → **0.7.1**. |
 | Test harness | Module: `npm install && npm test` — **156/156 passing**. Agent: `cd gm-delegate-agent && npm install && npm test` — **28/28 passing**. (node v24.14.1, npm 11.11.0.) |
 | Foundry version tested against | **v14.365** (Node build), self-hosted on a RunPod pod. M1, M3, M4, M5, M6, and now M7 are live-verified. Only M2 remains vitest-only (by design — no DOM involved). |
@@ -1995,6 +1995,46 @@ why — otherwise a future session will relitigate it again.)*
     mostly describing folders these two stages don't use — option 6, flagged as the
     highest-risk-per-ms option in that table, so weigh carefully), then stage-merging as the
     last resort, not the next default move.
+  - **Same session, continued: implemented option 6 as per-stage composition** (user's explicit
+    choice over a blanket edit) rather than trimming the shared file in place — the catalog
+    table (`_world`/`_characters`/`_npcs`/`_srd` reference, confirmed 220 tokens via
+    `/tokenize` against the live server) moved to a new `gm-session/CATALOG.md`, included only
+    when a new `useCatalog` param is true (default, same generic-contract shape as
+    `useFsTools`). `20_resolve`/`30_scene` pass `useCatalog: false`, paired with the
+    `useFsTools: false` they already had — the catalog was already unreachable for both stages
+    without the read tools, so this trades away nothing either stage could act on. `10_watch`/
+    `00_dm` (unwired today, but real future stages) keep full access via the untouched default.
+    Caught and fixed one accuracy bug in the same table while restructuring it: root
+    `CONTEXT.md`'s Stages table claimed `30_scene` reads "catalog + upstream out/," which hasn't
+    been true since M7 (`30_scene/CONTEXT.md` has said "ground in trigger text + `20_resolve`'s
+    result alone" for a while). 33/33 → 35/35 `gm-delegate-agent` tests pass (2 new), 158/158
+    module tests unaffected.
+    - **Live-verified same session, and the result is more honest than a clean win.** `resolve
+      12` against real Foundry: **12/12 completed, 0 timed out, 14/14 valid `roll_on_table`,
+      12/12 valid `propose_encounter`, 0 invalid args** — no regression, same as every prior
+      check. But the first 2 of 12 runs hit a cold prefix cache (13987ms, 12121ms) because the
+      prompt content itself changed (`cacheRead: 0` on both, confirmed in the per-completion
+      log), invalidating whatever the server had cached from before this edit — a one-time
+      cost per agent-process lifetime, not a per-trigger one, so excluded from the steady-state
+      read. **Median on the remaining 10 (steady-state) runs: ~6436ms** — genuinely *not*
+      better than the ~6018ms measured for the same scenario just before this change, within
+      this sample's noise. **Read honestly, not spun**: dropping ~220 tokens from an
+      *already-cached* prefix has a much smaller marginal cost than dropping a whole model
+      completion did (the `list_roll_tables`/`terminalTool` fixes, which removed entire
+      prefill+decode rounds regardless of caching) — this result is consistent with, not a
+      contradiction of, session 10's own finding that prefix caching is doing most of the work
+      here. The change is kept: it's still correct (no stage loses real capability), still
+      cheaper in absolute token/VRAM terms, and still closes a real "prompt claims access the
+      code doesn't grant" accuracy gap. It's just not the latency lever it was expected to be.
+  - **Next session:** the "cut tokens within a cached prompt" lever is now empirically
+    exhausted for this system — don't reach for more of it (e.g. further shrinking
+    `IDENTITY.md` or stage `CONTEXT.md` files) expecting a repeat win; the evidence says it
+    won't move the median. The remaining real levers are the ones that remove a whole
+    completion, which is a shorter list now: stage-merging (last resort, trades away the
+    per-stage tool-pruning design) is what's left from the Opus agent's ranked table. Current
+    live median stands at **~6018–6436ms**, still short of <5s — worth deciding whether that
+    gap is worth stage-merging's cost, or worth accepting and moving to the real four-session
+    usage evaluation §9 has been waiting on since M7.
 
 ## Known forward references in the spec
 
