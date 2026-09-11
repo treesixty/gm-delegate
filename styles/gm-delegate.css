@@ -102,6 +102,13 @@
   align-items: flex-start;
   max-height: 160px;
   overflow-y: auto;
+  /* Unlike the sparse toggle/chips/trigger rows, this row's whole point is
+     to be interacted with (scrolled, and its card buttons clicked) rather
+     than clicked through to the canvas underneath — the panel-wide
+     pointer-events: none above otherwise makes its own overflow scrollbar
+     (and wheel-scrolling) inert, cutting off card content with no way to
+     reach it. Live-caught during the M8 pilot session (STATUS.md). */
+  pointer-events: auto;
 }
 
 #gm-delegate-panel .queued-cards {
